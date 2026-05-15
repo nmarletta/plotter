@@ -8,6 +8,9 @@ Setting settings[] = {
   { "$3", "Dir. Port Invert", "mask", -1, 0, 7, 0, 1 },
   { "$4", "Step Enable Invert", "bool", -1, 0, 1, 0, 1 },
   { "$5", "Limit Pins Invert", "bool", -1, 0, 1, 0, 1 },
+  { "$30", "Max Spindle Speed", "RPM", -1, 0, 9999, 0, 10 },
+  { "$31", "Min Spindle Speed", "RPM", -1, 0, 1000, 0, 1 },
+  { "$32", "Laser Mode", "bool", -1, 0, 1, 0, 1 },
   { "$11", "Junction Deviation", "mm", -1, 0, 1.0, 3, 0.01 },
   { "$12", "Arc Tolerance", "mm", -1, 0, 1.0, 3, 0.01 },
   { "$20", "Soft Limits", "bool", -1, 0, 1, 0, 1 },
@@ -26,16 +29,9 @@ Setting settings[] = {
   { "$121", "Y Acceleration", "mm/sec^2", -1, 0, 999, 0, 10 },
   { "$130", "X Max Travel", "mm", -1, 0, 9999, 0, 10 },
   { "$131", "Y Max Travel", "mm", -1, 0, 9999, 0, 10 },
-  { "#PEN_DOWN", "Pen Down", "", -1, 0, 31, 0, 1 },
-  { "#PEN_UP", "Pen Up", "", -1, 0, 31, 0, 1 },
 };
 
-String settingNames[] = {
-    "<- Back", "Step Pulse Length", "Step Idle Delay", "Step Port Invert", "Dir. Port Invert", "Step Enable Invert", "Limit Pins Invert", "Junction Deviation", "Arc Tolerance",
-    "Soft Limits", "Hard Limits", "Homing Cycle", "Homing Dir Invert", "Homing Feed", "Homing Seek", "Homing Debounce", "Homing Pull-off", "X steps", "Y steps",
-    "X Max Rate", "Y Max Rate", "X Acceleration", "Y Acceleration", "X Max Travel", "Y Max Travel", "Pen Down", "Pen Up"
-};
-int settingsSize = 27;
+const int settingsSize = sizeof(settings) / sizeof(settings[0]);
 
 
 bool settings_active = false;
@@ -46,7 +42,7 @@ void state_settings() {
   if (!settings_active) {
     encoder.setPosition(1);
     loadSettings();
-    displayList(encoder.getPosition(), settingNames, settingsSize);
+    displayList(encoder.getPosition(), settings, settingsSize);
     settings_active = true;
   }
 
@@ -77,7 +73,7 @@ void updateDisplay() {
   if (changeSetting) {
     displayChangeSettings(settings[selectedSetting]);
   } else {
-    displayList(encoder.getPosition(), settingNames, settingsSize);
+    displayList(encoder.getPosition(), settings, settingsSize);
   }
 }
 
@@ -92,11 +88,43 @@ void selectSetting(int i) {
     encoder.setPosition(settings[i].value / settings[i].step);
     changeSetting = true;
   } else {
+    // Confirmed — send to GRBL
+    if (settings[selectedSetting].command.startsWith("$")) {
+      char buf[32];
+      snprintf(buf, sizeof(buf), "%s=%g",
+        settings[selectedSetting].command.c_str(),
+        (double)settings[selectedSetting].value);
+      Serial.print("SETTING >> "); Serial.println(buf);
+      // Soft-reset GRBL first: puts it in STATE_ALARM where the hard-limit
+      // ISR cannot fire, so our $xx=val command won't be wiped by mc_reset().
+      serialMgr.softResetAndWait();
+      bool ok = serialMgr.sendLine(buf);
+      Serial.print("SETTING << "); Serial.println(ok ? "ok" : serialMgr.getLastResponse());
+    }
     encoder.setPosition(selectedSetting);
     changeSetting = false;
   }
 }
 
+static void onGrblSetting(const String& cmd, float value) {
+  for (int i = 1; i < settingsSize; i++) {
+    if (settings[i].command == cmd) {
+      settings[i].value = value;
+      break;
+    }
+  }
+}
+
 void loadSettings() {
+  // Set safe defaults first
+  for (int i = 1; i < settingsSize; i++) settings[i].value = settings[i].minValue;
+
+  // Soft-reset GRBL before sending $$ so it enters STATE_ALARM.
+  // In STATE_ALARM the hard-limit pin-change ISR is suppressed, allowing
+  // serial commands to be received without being wiped by mc_reset().
+  serialMgr.softResetAndWait();
+
+  // Load live values from GRBL
+  serialMgr.querySettings(onGrblSetting);
 }
 

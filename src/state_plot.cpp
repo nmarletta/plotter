@@ -8,21 +8,8 @@ void StatePlot::enter(const char *filepath) {
     _confirmCancel = false;
     _showingPaused = false;
 
-    // Count total lines so we can display a progress percentage
-    _totalLines = 0;
-    FsFile f;
-    if (f.open(filepath, O_READ)) {
-        while (f.available()) {
-            if (f.read() == '\n') _totalLines++;
-        }
-        f.close();
-    }
-
-    // start streamer
-    bool ok = _stream.start(filepath);
-    if (!ok) {
-        // handle error: display message
-    }
+    // start streamer (captures file size internally for progress)
+    _stream.start(filepath);
     refreshDisplay();
 }
 
@@ -35,35 +22,45 @@ void StatePlot::loopTick() {
     // drive streamer
     _stream.tick();
 
-    // update UI once per loop or at some interval
-    // update paused / running flags to change menu
-    if (_stream.status() == GCodeStatus::Paused) _showingPaused = true;
-    else _showingPaused = false;
+    _showingPaused = (_stream.status() == GCodeStatus::Paused);
 
-    // if completed, automatically return to main state (caller should check)
-    if (_stream.status() == GCodeStatus::Completed) {
-        // TODO: signal main-state to switch back; here we just show final
-        // e.g., set a flag or call a callback (not implemented)
+    // Throttle display to 1Hz — enough for a progress bar on a long plot
+    if (millis() - _lastDisplayMs >= 1000) {
+        _lastDisplayMs = millis();
+        refreshDisplay();
     }
-
-    refreshDisplay();
 }
 
-void StatePlot::onEncoderRotate(int delta) {
-    // rotate menu selection
-    // simple two-item menu: 0 = Pause/Continue, 1 = Cancel
-    int itemCount = 2;
-    _menuIndex = (_menuIndex + delta + itemCount) % itemCount;
+void StatePlot::onEncoderRotate(int absIndex) {
+    _menuIndex = absIndex;
     refreshDisplay();
 }
 
 void StatePlot::onButtonPress() {
+    // Alarm state: single Unlock button — send $X, reopen file, go to Paused
+    if (_stream.status() == GCodeStatus::Alarm) {
+        _stream.unlock();
+        refreshDisplay();
+        return;
+    }
+
+    // Error state: Retry soft-resets GRBL and auto-resumes from saved progress when GRBL ready
+    if (_stream.status() == GCodeStatus::Error) {
+        if (_menuIndex == 0) {
+            _stream.retryAfterError();
+        } else {
+            doCancelConfirmed();
+        }
+        refreshDisplay();
+        return;
+    }
+
     // act on selected item
     if (_menuIndex == 0) {
         // Pause / Continue
         if (_stream.status() == GCodeStatus::Paused) {
             _stream.resume();
-        } else if (_stream.status() == GCodeStatus::Running || _stream.status() == GCodeStatus::WaitingForOk) {
+        } else if (_stream.status() == GCodeStatus::Running) {
             _stream.pause();
         } else if (_stream.status() == GCodeStatus::Idle) {
             // no-op or restart
@@ -81,8 +78,7 @@ void StatePlot::onButtonPress() {
 }
 
 void StatePlot::doCancelConfirmed() {
-    _stream.cancel();
-    // TODO: notify main-state to switch back to main menu/state
+    _stream.cancel(); // sets status Canceled; free function switches to MAIN on next tick
     _confirmCancel = false;
 }
 
@@ -98,14 +94,17 @@ static bool          _plot_entered = false;
 
 void state_plot() {
   if (!_plot_entered) {
+    encoder.setPosition(0);          // reset encoder on entry
     _gcode_streamer.begin();
     _state_plot.enter(selectedFile.c_str());
     _plot_entered = true;
   }
 
   if (encoder.turned()) {
-    _state_plot.onEncoderRotate(encoder.getPosition() > 0 ? 1 : -1);
-    encoder.setPosition(0);
+    // Alarm: single button, constrain to 0. Normal: two buttons 0-1.
+    int maxIdx = (_gcode_streamer.status() == GCodeStatus::Alarm) ? 0 : 1;
+    encoder.constrainPosition(0, maxIdx);
+    _state_plot.onEncoderRotate(encoder.getPosition());
   }
 
   if (encoder.pressed()) {
@@ -124,9 +123,7 @@ void state_plot() {
 }
 
 void StatePlot::refreshDisplay() {
-    float progress = (_totalLines > 0)
-        ? constrain((float)_stream.currentLine() / (float)_totalLines, 0.0f, 1.0f)
-        : 0.0f;
+    float progress = _stream.progress();
     bool paused = (_stream.status() == GCodeStatus::Paused);
 
     // Strip directory from filepath for display
@@ -134,6 +131,9 @@ void StatePlot::refreshDisplay() {
     const char* slash = strrchr(full, '/');
     const char* fname = slash ? slash + 1 : full;
 
-    displayPlot(fname, _menuIndex, progress, paused, _confirmCancel);
+    bool error     = (_stream.status() == GCodeStatus::Error);
+    bool resetting = (_stream.status() == GCodeStatus::Resetting);
+    int8_t alarm   = _stream.alarmCode();
+    displayPlot(fname, _menuIndex, progress, paused, _confirmCancel, error, resetting, alarm);
 }
 

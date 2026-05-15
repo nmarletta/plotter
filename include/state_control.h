@@ -4,6 +4,7 @@
 #include "globals.h"
 #include "display.h"
 #include "RotaryButton.h"
+#include <Arduino.h>
 
 extern Setting settings[];
 extern RotaryButton encoder;

@@ -1,5 +1,7 @@
 #include "gcode_streamer.h"
 
+static String filterLine(const String &raw); // forward declaration
+
 GCodeStreamer::GCodeStreamer(HardwareSerial &grblSerial, uint8_t csPin)
     : _grbl(grblSerial), _sdCSPin(csPin) {}
 
@@ -9,8 +11,25 @@ bool GCodeStreamer::begin() {
 }
 
 bool GCodeStreamer::start(const char *filepath) {
-    if (_status == GCodeStatus::Running || _status == GCodeStatus::WaitingForOk) return false;
+    if (_status == GCodeStatus::Running) return false;
     _filepath = String(filepath);
+    // reset queue and buffer state
+    _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
+    _rxLen = 0;
+    _hasPendingLine = false;
+    _sentFinalM5 = false;
+
+    // Clear any GRBL alarm lock ($X). GRBL always responds "ok" to this,
+    // even if no alarm is active, so it's safe to send unconditionally.
+    _grbl.println("$X");
+    unsigned long t = millis();
+    while (millis() - t < 500) {
+        if (_grbl.available()) {
+            String r = _grbl.readStringUntil('\n');
+            r.trim();
+            if (r == "ok" || r.startsWith("error")) break;
+        }
+    }
     uint32_t resumeLine = 0;
     if (loadProgress(resumeLine)) {
         _lineNumber = resumeLine;
@@ -21,32 +40,70 @@ bool GCodeStreamer::start(const char *filepath) {
         _status = GCodeStatus::Error;
         return false;
     }
+
+    // When resuming mid-file, GRBL has been reset and lost its modal state
+    // (feed rate, units, distance mode). Re-send all setup lines from the
+    // beginning of the file — anything before the first XY motion command.
+    if (_lineNumber > 0) {
+        FsFile pre;
+        if (pre.open(filepath, O_READ)) {
+            while (pre.available()) {
+                String pLine = filterLine(readLineFromFile(pre));
+                if (pLine.length() == 0) continue;
+                String up = pLine; up.toUpperCase();
+                if (up.indexOf('X') >= 0 || up.indexOf('Y') >= 0) break; // reached motion — stop
+                _grbl.println(pLine);
+                // Wait briefly for ok before sending next preamble line
+                unsigned long tw = millis();
+                while (millis() - tw < 500) {
+                    if (_grbl.available()) {
+                        String r = _grbl.readStringUntil('\n'); r.trim();
+                        if (r == "ok" || r.startsWith("error")) break;
+                    }
+                }
+            }
+            pre.close();
+        }
+    }
+    _fileSize = _file.size();
     _status = GCodeStatus::Running;
-    _waitingForOk = false;
-    // ensure serial at correct baud is initialized externally
-    return sendNextLine(); // attempt to send first line
+    _lastSaveMs = millis();
+    return true; // pumpLines() called from tick()
 }
 
 void GCodeStreamer::pause() {
-    if (_status == GCodeStatus::Running || _status == GCodeStatus::WaitingForOk) {
+    if (_status == GCodeStatus::Running) {
+        _grbl.write('!'); // GRBL real-time feed hold — stops motion immediately
         _status = GCodeStatus::Paused;
     }
 }
 
 void GCodeStreamer::resume() {
     if (_status == GCodeStatus::Paused) {
+        _grbl.write('~'); // GRBL real-time cycle start — resumes motion
         _status = GCodeStatus::Running;
-        // if not waiting, try send next
-        if (!_waitingForOk) sendNextLine();
+        pumpLines();
     }
 }
 
 void GCodeStreamer::cancel() {
+    _grbl.write(0x18); // GRBL soft reset: clears planner buffer and disables spindle (= pen up)
     _status = GCodeStatus::Canceled;
-    // remove progress file
+    _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
+    _hasPendingLine = false;
     String p = progressPathFor(_filepath);
     if (sd.exists(p.c_str())) sd.remove(p.c_str());
     if (_file) _file.close();
+}
+
+void GCodeStreamer::retryAfterError() {
+    _grbl.write(0x18); // soft reset GRBL: pen up, buffer cleared
+    _status = GCodeStatus::Resetting;
+    _resetStartMs = millis();
+    _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
+    _hasPendingLine = false;
+    if (_file) _file.close();
+    // progress file intentionally kept — start() will resume from saved line
 }
 
 void GCodeStreamer::stop() {
@@ -56,25 +113,54 @@ void GCodeStreamer::stop() {
 
 GCodeStatus GCodeStreamer::status() const { return _status; }
 uint32_t GCodeStreamer::currentLine() const { return _lineNumber; }
+int8_t GCodeStreamer::alarmCode() const { return _alarmCode; }
+float GCodeStreamer::progress() const {
+    if (_status == GCodeStatus::Completed) return 1.0f;
+    if (_fileSize == 0) return 0.0f;
+    return constrain((float)_file.curPosition() / (float)_fileSize, 0.0f, 1.0f);
+}
 String GCodeStreamer::currentFilename() const { return _filepath; }
+
+void GCodeStreamer::unlock() {
+    // Send $X (alarm clear) and wait briefly for GRBL ok
+    _grbl.println("$X");
+    unsigned long t = millis();
+    while (millis() - t < 500) {
+        if (_grbl.available()) {
+            String r = _grbl.readStringUntil('\n');
+            r.trim();
+            if (r == "ok" || r.startsWith("error")) break;
+        }
+    }
+    // Reset queue — GRBL cleared its planner buffer on alarm
+    _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
+    _hasPendingLine = false;
+    _alarmCode = 0;
+    // Reopen file at the last acknowledged line so resume continues from there
+    openFileAtLine(_filepath.c_str(), _lineNumber);
+    _status = GCodeStatus::Paused;
+}
 
 void GCodeStreamer::tick() {
     if (_status == GCodeStatus::Idle || _status == GCodeStatus::Completed || _status == GCodeStatus::Error) return;
-    // read incoming GRBL serial for responses
     handleGrblResponse();
 
-    if (_status == GCodeStatus::Paused || _status == GCodeStatus::Canceled) return;
+    if (_status == GCodeStatus::Paused || _status == GCodeStatus::Canceled || _status == GCodeStatus::Alarm) return;
 
-    // periodically save progress
-    if (millis() - _lastProgressSaveMs > _progressSaveIntervalMs && _status == GCodeStatus::Running) {
+    if (_status == GCodeStatus::Resetting) {
+        if (millis() - _resetStartMs > kResetTimeoutMs) {
+            _status = GCodeStatus::Error; // GRBL never responded after reset
+        }
+        return;
+    }
+
+    // Periodic progress save
+    if (millis() - _lastSaveMs > kSaveIntervalMs) {
         saveProgress();
-        _lastProgressSaveMs = millis();
+        _lastSaveMs = millis();
     }
 
-    // if not waiting for ok, try to send next
-    if (!_waitingForOk && _status == GCodeStatus::Running) {
-        sendNextLine();
-    }
+    pumpLines();
 }
 
 bool GCodeStreamer::openFileAtLine(const char *path, uint32_t lineToStart) {
@@ -101,52 +187,130 @@ String GCodeStreamer::readLineFromFile(FsFile &f) {
     return line;
 }
 
-bool GCodeStreamer::sendNextLine() {
-    if (!_file) {
-        _status = GCodeStatus::Error;
-        return false;
+// Filter a raw gcode line for this plotter:
+//   - Returns "" for lines that should be skipped entirely.
+//   - Returns the cleaned line otherwise.
+// Rules (applied in order):
+//   1. Strip inline (...) comment from end of line.
+//   2. Skip blank lines, ; comments, ( comments, T tool-change lines.
+//   3. Z with no X/Y: the whole line is a pen up/down command — skip it.
+//   4. Z alongside X/Y: strip the Z token, preserve the lateral move.
+static String filterLine(const String &raw) {
+    // 1. strip inline comment
+    String line = raw;
+    int cp = line.indexOf('(');
+    if (cp >= 0) { line = line.substring(0, cp); line.trim(); }
+
+    // 2. skip non-motion lines
+    if (line.length() == 0) return "";
+    if (line.startsWith(";") || line.startsWith("(")) return "";
+    if (line.startsWith("T") || line.startsWith("t")) return "";
+
+    // 3 & 4. handle Z axis
+    String up = line; up.toUpperCase();
+    int z = up.indexOf('Z');
+    if (z >= 0) {
+        if (up.indexOf('X') < 0 && up.indexOf('Y') < 0) return ""; // no X/Y: Z-only move, no Z axis on this machine — skip
+        // Z alongside XY: strip the Z<value> token
+        int end = z + 1;
+        if (end < (int)line.length() && (line[end] == '-' || line[end] == '+')) end++;
+        while (end < (int)line.length() && (isDigit(line[end]) || line[end] == '.')) end++;
+        if (end < (int)line.length() && line[end] == ' ') end++;
+        line = line.substring(0, z) + line.substring(end);
+        line.trim();
     }
-    while (_file.available()) {
-        String line = readLineFromFile(_file);
-        // skip blank lines and comments (Grbl comments often start with ';' or '(')
-        if (line.length() == 0) { _lineNumber++; continue; }
-        if (line.startsWith(";") || line.startsWith("(")) { _lineNumber++; continue; }
-        // send the line to GRBL
+
+    return line;
+}
+
+void GCodeStreamer::pumpLines() {
+    while (_status == GCodeStatus::Running) {
+        String line;
+
+        if (_hasPendingLine) {
+            // A line was read but the buffer was full last tick — retry
+            line = _pendingLine;
+            _hasPendingLine = false;
+        } else if (_file && _file.available()) {
+            line = filterLine(readLineFromFile(_file));
+            if (line.length() == 0) { _lineNumber++; continue; }
+        } else if (!_sentFinalM5) {
+            // File exhausted — send one defensive pen-up before completing
+            line = "M5";
+            _sentFinalM5 = true;
+        } else {
+            // All lines sent — wait for remaining oks
+            if (_qCount == 0) {
+                _file.close();
+                _status = GCodeStatus::Completed;
+                // Delete the progress file — plot finished cleanly.
+                // (If we saved it, the next run of the same file would resume from EOF and skip everything.)
+                String p = progressPathFor(_filepath);
+                if (sd.exists(p.c_str())) sd.remove(p.c_str());
+            }
+            return;
+        }
+
+        uint8_t sendLen = (line.length() < kGrblBufSize)
+            ? (uint8_t)(line.length() + 1) : kGrblBufSize;
+
+        if (_bufUsed + sendLen > kGrblBufSize || _qCount >= kQueueDepth) {
+            // GRBL's buffer is full — hold this line until space frees up
+            _pendingLine = line;
+            _hasPendingLine = true;
+            return;
+        }
+
         _grbl.println(line);
-        _waitingForOk = true;
-        _status = GCodeStatus::WaitingForOk;
-        // note: do NOT increment _lineNumber until we receive 'ok' (so resume works)
-        return true;
+        Serial.print(">> "); Serial.println(line);
+        _pending[_qTail] = sendLen;
+        _qTail = (_qTail + 1) % kQueueDepth;
+        _qCount++;
+        _bufUsed += sendLen;
     }
-    // no more lines
-    _status = GCodeStatus::Completed;
-    saveProgress(); // final save (may remove progress file if desired)
-    return true;
 }
 
 void GCodeStreamer::handleGrblResponse() {
-    if (!_grbl) return;
     while (_grbl.available()) {
-        String resp = _grbl.readStringUntil('\n');
-        resp.trim();
-        if (resp.length() == 0) continue;
-        // GRBL responses: "ok", "error:...", "ALARM:..." and status reports. Accept substring "ok".
-        if (resp.indexOf("ok") >= 0) {
-            if (_waitingForOk) {
-                _waitingForOk = false;
-                // We consider the previously sent line as completed -> increment
-                _lineNumber++;
-                _status = GCodeStatus::Running;
-                saveProgress();
-            }
-        } else if (resp.indexOf("error") >= 0 || resp.indexOf("ALARM") >= 0) {
-            // On error, mark and pause so user can decide
-            _status = GCodeStatus::Error;
-            _waitingForOk = false;
-        } else {
-            // other GRBL chatter; ignore or hook for logging
+        char c = (char)_grbl.read();
+        if (c == '\r') continue;
+        if (c == '\n') {
+            _rxBuf[_rxLen] = '\0';
+            if (_rxLen > 0) processGrblLine(_rxBuf);
+            _rxLen = 0;
+        } else if (_rxLen < sizeof(_rxBuf) - 1) {
+            _rxBuf[_rxLen++] = c;
         }
     }
+}
+
+void GCodeStreamer::processGrblLine(const char *line) {
+    Serial.print("<< "); Serial.println(line);
+    if (_status == GCodeStatus::Resetting) {
+        if (strstr(line, "Grbl") != nullptr) {
+            start(_filepath.c_str()); // resumes from saved progress line
+        }
+        return;
+    }
+
+    if (strcmp(line, "ok") == 0) {
+        if (_qCount > 0) {
+            _bufUsed -= _pending[_qHead];
+            _qHead = (_qHead + 1) % kQueueDepth;
+            _qCount--;
+            _lineNumber++;
+            // progress saved on timer in tick(), not per-ok
+        }
+    } else if (strncmp(line, "ALARM:", 6) == 0) {
+        _alarmCode = (int8_t)atoi(line + 6);
+        _status = GCodeStatus::Alarm;
+        // Reset queue — GRBL clears its buffer on alarm
+        _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
+        _hasPendingLine = false;
+    } else if (strncmp(line, "error", 5) == 0) {
+        _status = GCodeStatus::Error;
+    }
+    // status reports (<...>) and other GRBL chatter silently ignored
 }
 
 bool GCodeStreamer::saveProgress() {
@@ -168,7 +332,7 @@ bool GCodeStreamer::loadProgress(uint32_t &lineOut) {
     if (!sd.exists(p.c_str())) return false;
     FsFile pf;
     if (!pf.open(p.c_str(), O_READ)) return false;
-    String storedPath = pf.readStringUntil('\n');
+    pf.readStringUntil('\n'); // skip filepath line
     String lineStr = pf.readStringUntil('\n');
     lineStr.trim();
     lineOut = (uint32_t)lineStr.toInt();

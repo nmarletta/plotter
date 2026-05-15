@@ -17,7 +17,7 @@ public:
     void exit();
     void loopTick(); // call frequently from main loop
     // Call from your input handlers:
-    void onEncoderRotate(int delta); // -1 or +1
+    void onEncoderRotate(int absIndex); // 0 or 1 — absolute menu index
     void onButtonPress(); // press event
 
 private:
@@ -26,7 +26,7 @@ private:
     int _menuIndex = 0;
     bool _confirmCancel = false;
     bool _showingPaused = false;
-    uint32_t _totalLines = 0;
+    unsigned long _lastDisplayMs = 0;
 
     void refreshDisplay();
     void doCancelConfirmed();

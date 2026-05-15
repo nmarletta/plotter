@@ -33,6 +33,16 @@ public:
   // Parse a GRBL response string and return its status type.
   GRBLStatus parseStatus(const String& response);
 
+  // Send $$ to GRBL and populate an array of command=value pairs.
+  // Calls onSetting(command, value) for each $xx=value line received.
+  // Returns true if GRBL responded with ok.
+  bool querySettings(void (*onSetting)(const String& cmd, float value), unsigned int timeout_ms = 2000);
+
+  // Send 0x18 soft-reset and wait for GRBL to restart.
+  // Puts GRBL into STATE_ALARM, which suppresses the hard-limit pin-change ISR.
+  // Call this before any $xx=val or $$ command if limit switches are noisy.
+  void softResetAndWait();
+
   // Returns true if Serial1 is initialized and ready for communication.
   bool isReady();
 
