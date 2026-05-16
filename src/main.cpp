@@ -31,6 +31,7 @@ RotaryButton encoder(PIN_ENCODER_DT, PIN_ENCODER_CLK, PIN_ENCODER_SW);
 #define PIN_FAN 2
 
 #include "globals.h"
+#include "wifi_manager.h"
 #include "state_main.h"
 #include "state_control.h"
 #include "state_settings.h"
@@ -42,30 +43,38 @@ RotaryButton encoder(PIN_ENCODER_DT, PIN_ENCODER_CLK, PIN_ENCODER_SW);
 void setup() {
   Serial.begin(250000);
 
-  // Hold NINA WiFi in reset and deassert its CS so it never drives the SPI bus.
-  pinMode(NINA_RESETN, OUTPUT); digitalWrite(NINA_RESETN, LOW);
-  pinMode(SPIWIFI_SS,  OUTPUT); digitalWrite(SPIWIFI_SS,  HIGH);
-
+  // SD init first — must happen before WiFiNINA takes over SPI
   encoder.begin();
-
-  // SD init BEFORE display. SdFat calls SPI.begin() internally here (once,
-  // uninterrupted). u8g2.begin() calls SPI.begin() again after this completes,
-  // which is fine — SD file ops use beginTransaction()/endTransaction().
   pinMode(PIN_SDCARD_CS, OUTPUT); digitalWrite(PIN_SDCARD_CS, HIGH);
   delay(100);
   sd.begin(SdSpiConfig(PIN_SDCARD_CS, SHARED_SPI, SD_SCK_HZ(400000)));
 
-  // Display init AFTER SD. u8g2 calls SPI.begin() internally; that's fine
-  // because SD uses beginTransaction() / endTransaction() on every access.
   u8g2.begin();
   pinMode(PIN_FAN, OUTPUT);
   serialMgr.begin(115200);
-  loadPenCfg(); // restore pen S values from /pen.cfg on SD
+  loadPenCfg();
+
+  // Connect to WiFi (reads /wifi.cfg from SD)
+  wifiBegin();
+
+  // Show WiFi status on OLED for 3 seconds
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);
+  u8g2.setFontPosCenter();
+  if (wifiConnected()) {
+    u8g2.setCursor(0, 20); u8g2.print("WiFi connected");
+    u8g2.setCursor(0, 38); u8g2.print(wifiIP());
+  } else {
+    u8g2.setCursor(0, 32); u8g2.print("WiFi not connected");
+  }
+  u8g2.sendBuffer();
+  delay(3000);
 
   currentState = MAIN;
 }
 
 void loop() {
+  wifiTick(); // service any pending HTTP client
   switch (currentState) {
     case MAIN:
       state_main();
