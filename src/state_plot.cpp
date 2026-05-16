@@ -1,5 +1,7 @@
 #include "state_plot.h"
 
+#define PIN_FAN 2
+
 StatePlot::StatePlot(GCodeStreamer &streamer) : _stream(streamer) {}
 
 void StatePlot::enter(const char *filepath) {
@@ -10,12 +12,14 @@ void StatePlot::enter(const char *filepath) {
 
     // start streamer (captures file size internally for progress)
     _stream.start(filepath);
+    digitalWrite(PIN_FAN, HIGH); // fan on while plotting
     refreshDisplay();
 }
 
 void StatePlot::exit() {
     // ensure streamer is stopped or left as desired
     _stream.stop();
+    digitalWrite(PIN_FAN, LOW); // fan off when done
 }
 
 void StatePlot::loopTick() {

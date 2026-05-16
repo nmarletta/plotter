@@ -17,9 +17,9 @@ extern RotaryButton encoder;
 
 static Setting penSettings[] = {
   { " ",  "<- Back",     "",  -1,    0,    0,  0,   1 },
-  { "pd", "Pen Down S",  "",  700,   0, 1000,  0,  10 },
-  { "pu", "Pen Up S",    "",  100,   0, 1000,  0,  10 },
-  { "ow", "Overwrite S", "",    0,   0,    1,  0,   1 },
+  { "Down", "Pen Down S",  "S",  700,   0, 1000,  0,  10 },
+  { "Up", "Pen Up S",    "S",  100,   0, 1000,  0,  10 },
+  { "ow", "Overwrite S", "bool",    0,   0,    1,  0,   1 },
 };
 const int penSettingsSize = sizeof(penSettings) / sizeof(penSettings[0]);
 

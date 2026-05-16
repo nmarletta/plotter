@@ -2,8 +2,8 @@
 
 Setting settings[] = {
   { " ", "<- Back", "", -1, -1, -1, -1, -1 },
-  { "$0", "Step Pulse Length", "µsec", -1, 0, 999, 0, 1 },
-  { "$1", "Step Idle Delay", "msec", -1, 0, 999, 0, 10 },
+  { "$0", "Step Pulse Length", "µsec", -1, 0, 999, 0, 5 },
+  { "$1", "Step Idle Delay", "msec", -1, 0, 999, 0, 5 },
   { "$2", "Step Port Invert", "mask", -1, 0, 7, 0, 1 },
   { "$3", "Dir. Port Invert", "mask", -1, 0, 7, 0, 1 },
   { "$4", "Step Enable Invert", "bool", -1, 0, 1, 0, 1 },
@@ -23,10 +23,10 @@ Setting settings[] = {
   { "$27", "Homing Pull-off", "mm", -1, 0, 99, 0, 1 },
   { "$100", "X steps", "steps/mm", -1, 0, 9999, 0, 10 },
   { "$101", "Y steps", "steps/mm", -1, 0, 9999, 0, 10 },
-  { "$110", "X Max Rate", "mm/min", -1, 0, 9999, 0, 100 },
-  { "$111", "Y Max Rate", "mm/min", -1, 0, 9999, 0, 100 },
-  { "$120", "X Acceleration", "mm/sec^2", -1, 0, 999, 0, 10 },
-  { "$121", "Y Acceleration", "mm/sec^2", -1, 0, 999, 0, 10 },
+  { "$110", "X Max Rate", "mm/min", -1, 0, 9999, 0, 50 },
+  { "$111", "Y Max Rate", "mm/min", -1, 0, 9999, 0, 50 },
+  { "$120", "X Acceleration", "mm/sec^2", -1, 0, 999, 0, 5 },
+  { "$121", "Y Acceleration", "mm/sec^2", -1, 0, 999, 0, 5 },
   { "$130", "X Max Travel", "mm", -1, 0, 9999, 0, 10 },
   { "$131", "Y Max Travel", "mm", -1, 0, 9999, 0, 10 },
 };
