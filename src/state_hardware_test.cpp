@@ -218,7 +218,7 @@ void state_hardware_test() {
     screen_dirty   = true;
     switch (hwtest_step) {
       case 2: enterScreen3(); break;
-      case 3: enterScreen4(); break;
+      case 3: enterScreen4(); btn_down = false; break; // clear stale long-press state after 2s blocking wait
       default: break;
     }
   }
@@ -253,6 +253,7 @@ void state_hardware_test() {
     fan_on = !fan_on;
     digitalWrite(PIN_FAN, fan_on ? HIGH : LOW);
     screen_dirty = true;
+    btn_down = false; // restart long-press window so holding after a tap doesn't exit
     return;
   }
 

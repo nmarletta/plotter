@@ -1,6 +1,8 @@
 #include "gcode_streamer.h"
+#include "globals.h"
 
-static String filterLine(const String &raw); // forward declaration
+static String filterLine(const String &raw);        // forward declaration
+static String applyPenOverwrite(const String &line); // forward declaration
 
 GCodeStreamer::GCodeStreamer(HardwareSerial &grblSerial, uint8_t csPin)
     : _grbl(grblSerial), _sdCSPin(csPin) {}
@@ -48,7 +50,7 @@ bool GCodeStreamer::start(const char *filepath) {
         FsFile pre;
         if (pre.open(filepath, O_READ)) {
             while (pre.available()) {
-                String pLine = filterLine(readLineFromFile(pre));
+                String pLine = applyPenOverwrite(filterLine(readLineFromFile(pre)));
                 if (pLine.length() == 0) continue;
                 String up = pLine; up.toUpperCase();
                 if (up.indexOf('X') >= 0 || up.indexOf('Y') >= 0) break; // reached motion — stop
@@ -223,6 +225,24 @@ static String filterLine(const String &raw) {
     return line;
 }
 
+// Rewrite standalone M3/M5 lines to use configured S values when overwrite is enabled.
+static String applyPenOverwrite(const String &line) {
+    if (!g_overwriteS) return line;
+    String up = line; up.toUpperCase();
+    if (up.indexOf('X') >= 0 || up.indexOf('Y') >= 0) return line; // motion line — leave alone
+    if (up.indexOf("M3") >= 0) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "M3 S%d", g_penDownS);
+        return String(buf);
+    }
+    if (up.indexOf("M5") >= 0) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "M3 S%d", g_penUpS);
+        return String(buf);
+    }
+    return line;
+}
+
 void GCodeStreamer::pumpLines() {
     while (_status == GCodeStatus::Running) {
         String line;
@@ -234,9 +254,16 @@ void GCodeStreamer::pumpLines() {
         } else if (_file && _file.available()) {
             line = filterLine(readLineFromFile(_file));
             if (line.length() == 0) { _lineNumber++; continue; }
+            line = applyPenOverwrite(line);
         } else if (!_sentFinalM5) {
             // File exhausted — send one defensive pen-up before completing
-            line = "M5";
+            if (g_overwriteS) {
+                char buf[16];
+                snprintf(buf, sizeof(buf), "M3 S%d", g_penUpS);
+                line = String(buf);
+            } else {
+                line = "M5";
+            }
             _sentFinalM5 = true;
         } else {
             // All lines sent — wait for remaining oks

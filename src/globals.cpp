@@ -3,6 +3,10 @@
 State currentState;
 SerialManager serialMgr;
 String selectedFile = "";
+
+int  g_penDownS   = 700;
+int  g_penUpS     = 100;
+bool g_overwriteS = false;
 // int encoderPosition;
 // int lastEncoderPosition;
 // bool encoderPressed;

@@ -5,11 +5,6 @@ static const int  kJogFeed        = 1000; // mm/min
 static const int  kJogStepMm      = 1;    // mm per encoder tick
 static const int  kPosIntervalMs  = 200;  // how often to poll GRBL position
 
-// Servo S values (0–$30, default $30=1000).
-// Tune these until pen moves cleanly: start with 1000/0 to confirm servo responds,
-// then narrow down to the actual up/down positions.
-static const int  kPenDownS       = 700;  // M3 S<n>  — pen touching paper
-static const int  kPenUpS         = 300;  // M3 S<n>  — pen lifted
 
 bool control_active = false;
 
@@ -157,13 +152,13 @@ void control_menuSelect(int i) {
     control_active = false;
   } else if (i == 1) {
     Serial.println("CTRL: pen up");
-    char buf[16]; snprintf(buf, sizeof(buf), "M3 S%d", kPenUpS);
+    char buf[16]; snprintf(buf, sizeof(buf), "M3 S%d", g_penUpS);
     Serial1.println(buf);
     bool ok = serialMgr.waitForOk(500);
     Serial.print("PEN << "); Serial.println(ok ? "ok" : serialMgr.getLastResponse());
   } else if (i == 2) {
     Serial.println("CTRL: pen down");
-    char buf[16]; snprintf(buf, sizeof(buf), "M3 S%d", kPenDownS);
+    char buf[16]; snprintf(buf, sizeof(buf), "M3 S%d", g_penDownS);
     Serial1.println(buf);
     bool ok = serialMgr.waitForOk(500);
     Serial.print("PEN << "); Serial.println(ok ? "ok" : serialMgr.getLastResponse());

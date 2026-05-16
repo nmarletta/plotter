@@ -2,8 +2,8 @@
 
 bool main_active = false;
 
-String main_menuItems[] = { "Files", "Control", "Settings", "Diagnostics" };
-int main_menuSize = 4;
+String main_menuItems[] = { "Files", "Control", "GRBL Settings", "Pen Settings", "Diagnostics" };
+int main_menuSize = 5;
 
 void state_main() {
   if (!main_active) {
@@ -36,11 +36,16 @@ void main_menuSelect(int i) {
       break;
 
     case 2:
-      // Settings
+      // GRBL Settings
       currentState = SETTINGS;
       break;
 
     case 3:
+      // Pen Settings
+      currentState = PEN_SETTINGS;
+      break;
+
+    case 4:
       // Diagnostics
       currentState = HWTEST;
       break;

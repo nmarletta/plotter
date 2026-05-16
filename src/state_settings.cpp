@@ -95,9 +95,6 @@ void selectSetting(int i) {
         settings[selectedSetting].command.c_str(),
         (double)settings[selectedSetting].value);
       Serial.print("SETTING >> "); Serial.println(buf);
-      // Soft-reset GRBL first: puts it in STATE_ALARM where the hard-limit
-      // ISR cannot fire, so our $xx=val command won't be wiped by mc_reset().
-      serialMgr.softResetAndWait();
       bool ok = serialMgr.sendLine(buf);
       Serial.print("SETTING << "); Serial.println(ok ? "ok" : serialMgr.getLastResponse());
     }
@@ -118,11 +115,6 @@ static void onGrblSetting(const String& cmd, float value) {
 void loadSettings() {
   // Set safe defaults first
   for (int i = 1; i < settingsSize; i++) settings[i].value = settings[i].minValue;
-
-  // Soft-reset GRBL before sending $$ so it enters STATE_ALARM.
-  // In STATE_ALARM the hard-limit pin-change ISR is suppressed, allowing
-  // serial commands to be received without being wiped by mc_reset().
-  serialMgr.softResetAndWait();
 
   // Load live values from GRBL
   serialMgr.querySettings(onGrblSetting);

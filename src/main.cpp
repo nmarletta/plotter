@@ -34,6 +34,7 @@ RotaryButton encoder(PIN_ENCODER_DT, PIN_ENCODER_CLK, PIN_ENCODER_SW);
 #include "state_main.h"
 #include "state_control.h"
 #include "state_settings.h"
+#include "state_pen_settings.h"
 #include "state_files.h"
 #include "state_plot.h"
 #include "state_hardware_test.h"
@@ -59,6 +60,7 @@ void setup() {
   u8g2.begin();
   pinMode(PIN_FAN, OUTPUT);
   serialMgr.begin(115200);
+  loadPenCfg(); // restore pen S values from /pen.cfg on SD
 
   currentState = MAIN;
 }
@@ -73,6 +75,9 @@ void loop() {
       break;
     case SETTINGS:
       state_settings();
+      break;
+    case PEN_SETTINGS:
+      state_pen_settings();
       break;
     case FILES:
       state_files();
