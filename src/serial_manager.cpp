@@ -4,6 +4,7 @@
 // CRITICAL: Never use Serial1 for debug output - Serial only for USB debug.
 
 #include "serial_manager.h"
+#include "logger.h"
 
 bool SerialManager::begin(unsigned long baud) {
   Serial1.begin(baud);
@@ -19,6 +20,7 @@ bool SerialManager::begin(unsigned long baud) {
 }
 
 bool SerialManager::sendLine(const char* line) {
+  Log::send(line);
   Serial1.println(line);
   return waitForOk(3000); // 3s: GRBL writes all settings to EEPROM (~250-500ms) before sending ok
 }
@@ -36,7 +38,7 @@ bool SerialManager::waitForOk(unsigned int timeout_ms) {
     if (c == '\n') {
       buf[len] = '\0';
       if (len > 0) {
-        Serial.print("GRBL:["); Serial.print(buf); Serial.println(']');
+        Log::recv(buf);
         String s(buf);
         GRBLStatus st = parseStatus(s);
         if (st == GRBL_OK)    { _lastResponse = s; return true; }
@@ -48,7 +50,7 @@ bool SerialManager::waitForOk(unsigned int timeout_ms) {
       buf[len++] = c;
     }
   }
-  Serial.print("GRBL:TIMEOUT("); Serial.print(totalBytes); Serial.println("bytes)");
+  { char t[32]; snprintf(t, sizeof(t), "TIMEOUT (%d bytes)", totalBytes); Log::err(t); }
   _lastResponse = "TIMEOUT";
   return false;
 }
@@ -74,7 +76,8 @@ bool SerialManager::isReady() {
 }
 
 void SerialManager::softResetAndWait() {
-  Serial.println("GRBL: soft reset...");
+  Log::nav("soft reset");
+  Log::sendByte(0x18);
   Serial1.write(0x18); // CTRL-X: GRBL real-time soft reset
   // GRBL startup banner is ~60 bytes; 500ms is ample for the AVR to reboot
   // and enter STATE_ALARM (which suppresses the hard-limit ISR).
@@ -83,15 +86,16 @@ void SerialManager::softResetAndWait() {
   while (millis() < deadline) {
     if (Serial1.available()) { Serial1.read(); n++; }
   }
-  Serial.print("GRBL: reset done, discarded "); Serial.print(n); Serial.println(" bytes");
+  { char t[40]; snprintf(t, sizeof(t), "reset done, discarded %d bytes", n); Log::nav(t); }
 }
 
 bool SerialManager::querySettings(void (*onSetting)(const String& cmd, float value), unsigned int timeout_ms) {
   // flush any pending input
   while (Serial1.available()) Serial1.read();
 
+  Log::send("$$");
   Serial1.println("$$");
-  Serial.println("QSET: sent $$");
+  Log::nav("QSET: sent");
 
   unsigned long deadline = millis() + timeout_ms;
   char buf[64];
@@ -106,11 +110,11 @@ bool SerialManager::querySettings(void (*onSetting)(const String& cmd, float val
       if (len > 0) {
         String line(buf);
         if (line.startsWith("ok")) {
-          Serial.print("QSET: ok, "); Serial.print(nSettings); Serial.println(" settings loaded");
+          { char t[40]; snprintf(t, sizeof(t), "QSET: ok, %d settings", nSettings); Log::nav(t); }
           return true;
         }
         if (line.startsWith("error") || line.startsWith("ALARM")) {
-          Serial.print("QSET: rejected: "); Serial.println(line);
+          { char t[72]; snprintf(t, sizeof(t), "QSET rejected: %s", line.c_str()); Log::err(t); }
           return false;
         }
         if (line.startsWith("$")) {
@@ -128,6 +132,6 @@ bool SerialManager::querySettings(void (*onSetting)(const String& cmd, float val
       buf[len++] = c;
     }
   }
-  Serial.print("QSET: TIMEOUT, got "); Serial.print(nSettings); Serial.println(" settings before timeout");
+  { char t[48]; snprintf(t, sizeof(t), "QSET: TIMEOUT, got %d settings", nSettings); Log::err(t); }
   return false; // timeout
 }

@@ -1,4 +1,5 @@
 #include "state_settings.h"
+#include "logger.h"
 
 Setting settings[] = {
   { " ", "<- Back", "", -1, -1, -1, -1, -1 },
@@ -94,9 +95,8 @@ void selectSetting(int i) {
       snprintf(buf, sizeof(buf), "%s=%g",
         settings[selectedSetting].command.c_str(),
         (double)settings[selectedSetting].value);
-      Serial.print("SETTING >> "); Serial.println(buf);
-      bool ok = serialMgr.sendLine(buf);
-      Serial.print("SETTING << "); Serial.println(ok ? "ok" : serialMgr.getLastResponse());
+      bool ok = serialMgr.sendLine(buf); // sendLine logs [>>] itself
+      if (!ok) Log::err(serialMgr.getLastResponse().c_str());
     }
     encoder.setPosition(selectedSetting);
     changeSetting = false;

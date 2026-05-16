@@ -4,8 +4,8 @@ State currentState;
 SerialManager serialMgr;
 String selectedFile = "";
 
-int  g_penDownS   = 700;
-int  g_penUpS     = 100;
+int  g_penDownS   = 10;   // M5 S10 = pen down (grbl-servo fork)
+int  g_penUpS     = 800;  // M4 S800 = pen up (grbl-servo fork)
 bool g_overwriteS = false;
 // int encoderPosition;
 // int lastEncoderPosition;

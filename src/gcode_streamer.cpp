@@ -1,4 +1,5 @@
 #include "gcode_streamer.h"
+#include "logger.h"
 #include "globals.h"
 
 static String filterLine(const String &raw);        // forward declaration
@@ -225,6 +226,24 @@ static String filterLine(const String &raw) {
     return line;
 }
 
+// Always inject S values for bare M4/M5 commands (no S present).
+// Prevents GRBL from receiving M4/M5 without a servo position, which causes undefined behaviour.
+static String injectMissingS(const String &line) {
+    String up = line; up.toUpperCase();
+    if (up.indexOf('X') >= 0 || up.indexOf('Y') >= 0) return line; // motion line — leave alone
+    if (up.indexOf('S') >= 0) return line;                          // already has S value
+    char buf[16];
+    if (up.indexOf("M4") >= 0) {
+        snprintf(buf, sizeof(buf), "M4 S%d", g_penUpS);
+        return String(buf);
+    }
+    if (up.indexOf("M5") >= 0) {
+        snprintf(buf, sizeof(buf), "M5 S%d", g_penDownS);
+        return String(buf);
+    }
+    return line;
+}
+
 // Rewrite standalone M3/M5 lines to use configured S values when overwrite is enabled.
 static String applyPenOverwrite(const String &line) {
     if (!g_overwriteS) return line;
@@ -232,12 +251,12 @@ static String applyPenOverwrite(const String &line) {
     if (up.indexOf('X') >= 0 || up.indexOf('Y') >= 0) return line; // motion line — leave alone
     if (up.indexOf("M3") >= 0) {
         char buf[16];
-        snprintf(buf, sizeof(buf), "M3 S%d", g_penDownS);
+        snprintf(buf, sizeof(buf), "M5 S%d", g_penDownS); // M5 Sxxx = pen down in grbl-servo
         return String(buf);
     }
     if (up.indexOf("M5") >= 0) {
         char buf[16];
-        snprintf(buf, sizeof(buf), "M3 S%d", g_penUpS);
+        snprintf(buf, sizeof(buf), "M4 S%d", g_penUpS); // M4 Sxxx = pen up in grbl-servo
         return String(buf);
     }
     return line;
@@ -254,15 +273,16 @@ void GCodeStreamer::pumpLines() {
         } else if (_file && _file.available()) {
             line = filterLine(readLineFromFile(_file));
             if (line.length() == 0) { _lineNumber++; continue; }
+            line = injectMissingS(line);
             line = applyPenOverwrite(line);
         } else if (!_sentFinalM5) {
             // File exhausted — send one defensive pen-up before completing
             if (g_overwriteS) {
                 char buf[16];
-                snprintf(buf, sizeof(buf), "M3 S%d", g_penUpS);
+                snprintf(buf, sizeof(buf), "M4 S%d", g_penUpS); // M4 Sxxx = pen up in grbl-servo
                 line = String(buf);
             } else {
-                line = "M5";
+                line = "M4"; // default pen-up command
             }
             _sentFinalM5 = true;
         } else {
@@ -288,8 +308,8 @@ void GCodeStreamer::pumpLines() {
             return;
         }
 
+        Log::send(line.c_str());
         _grbl.println(line);
-        Serial.print(">> "); Serial.println(line);
         _pending[_qTail] = sendLen;
         _qTail = (_qTail + 1) % kQueueDepth;
         _qCount++;
@@ -312,7 +332,7 @@ void GCodeStreamer::handleGrblResponse() {
 }
 
 void GCodeStreamer::processGrblLine(const char *line) {
-    Serial.print("<< "); Serial.println(line);
+    Log::recv(line);
     if (_status == GCodeStatus::Resetting) {
         if (strstr(line, "Grbl") != nullptr) {
             start(_filepath.c_str()); // resumes from saved progress line
