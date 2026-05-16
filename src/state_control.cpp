@@ -22,9 +22,10 @@ static float         _posY            = 0;
 static char          _grblLine[64];
 static uint8_t       _grblLineLen     = 0;
 
-static bool _jogAlarm   = false;
-static bool _pendingJog = false; // true while a $J= command is in-flight (no ok yet)
-static int  _lastJogSign = 0;   // +1 or -1, to detect direction reversal
+static bool _jogAlarm      = false;
+static bool _pendingJog   = false; // true while a $J= command is in-flight (no ok yet)
+static bool _cancelPending = false; // true after 0x85 direction-change cancel, waiting for ok
+static int  _lastJogSign   = 0;    // +1 or -1, to detect direction reversal
 
 // Read any pending GRBL bytes into _grblLine; parse MPos when a full line arrives.
 static void pollGrblPosition() {
@@ -36,8 +37,10 @@ static void pollGrblPosition() {
             if (_grblLineLen > 0) {
                 Serial.print("<< "); Serial.println(_grblLine);
                 if (strncmp(_grblLine, "ALARM:", 6) == 0) _jogAlarm = true;
-                // ok = previous jog accepted, ready to send the next one
-                if (strcmp(_grblLine, "ok") == 0) _pendingJog = false;
+                // Detect spontaneous GRBL reset (startup banner) — treat as alarm
+                if (strncmp(_grblLine, "Grbl ", 5) == 0) _jogAlarm = true;
+                // ok = previous jog/cancel accepted
+                if (strcmp(_grblLine, "ok") == 0) { _pendingJog = false; _cancelPending = false; }
             }
             // Parse <...|MPos:x,y,z|...>
             char *mp = strstr(_grblLine, "MPos:");
@@ -76,10 +79,11 @@ void state_control() {
       Serial.println("JOG: ALARM detected, exiting jog");
       Serial1.write(0x85);
       while (Serial1.available()) Serial1.read();
-      _jogging     = false;
-      _jogAlarm    = false;
-      _pendingJog  = false;
-      _lastJogSign = 0;
+      _jogging       = false;
+      _jogAlarm      = false;
+      _pendingJog    = false;
+      _cancelPending = false;
+      _lastJogSign   = 0;
       encoder.setPosition(_selectedControl);
       displayList(encoder.getPosition(), control_menuItems, control_menuSize);
       return;
@@ -100,15 +104,17 @@ void state_control() {
 
     // Flush accumulated movement — acknowledgment-paced:
     // send next jog only after previous one is acknowledged to avoid flooding GRBL's planner.
-    if (millis() - _lastJogMs >= kJogIntervalMs && _jogAccum != 0) {
+    // _cancelPending: after a direction-change 0x85, wait for GRBL's ok before sending again.
+    if (millis() - _lastJogMs >= kJogIntervalMs && _jogAccum != 0 && !_cancelPending) {
       int newSign = (_jogAccum > 0) ? 1 : -1;
       // Direction reversed while a jog is in-flight: cancel it first.
       if (_pendingJog && newSign != _lastJogSign) {
         Serial1.write(0x85);
-        _pendingJog = false;
+        _pendingJog    = false;
+        _cancelPending = true; // don't send next jog until cancel ok is received
         Serial.println("JOG: cancel (direction change)");
       }
-      if (!_pendingJog) {
+      if (!_pendingJog && !_cancelPending) {
         char buf[40];
         snprintf(buf, sizeof(buf), "$J=G21G91%c%dF%d",
                  _jogAxis == 0 ? 'X' : 'Y', _jogAccum, kJogFeed);
@@ -124,10 +130,12 @@ void state_control() {
     // Button press: exit jog mode
     if (encoder.pressed()) {
       Serial1.write(0x85); // cancel any in-flight jog
-      while (Serial1.available()) Serial1.read();
-      _jogging     = false;
-      _pendingJog  = false;
-      _lastJogSign = 0;
+      serialMgr.waitForOk(400); // wait for GRBL to decelerate + send cancel ok
+      while (Serial1.available()) Serial1.read(); // flush any trailing bytes
+      _jogging       = false;
+      _pendingJog    = false;
+      _cancelPending = false;
+      _lastJogSign   = 0;
       encoder.setPosition(_selectedControl);
       displayList(encoder.getPosition(), control_menuItems, control_menuSize);
     }
@@ -163,11 +171,12 @@ void control_menuSelect(int i) {
     bool ok = serialMgr.waitForOk(500);
     Serial.print("PEN << "); Serial.println(ok ? "ok" : serialMgr.getLastResponse());
   } else if (i == 3 || i == 4) {
-    _jogAxis     = i - 3; // 3=X(0), 4=Y(1)
-    _jogAccum    = 0;
-    _jogAlarm    = false;
-    _pendingJog  = false;
-    _lastJogSign = 0;
+    _jogAxis        = i - 3; // 3=X(0), 4=Y(1)
+    _jogAccum       = 0;
+    _jogAlarm       = false;
+    _pendingJog     = false;
+    _cancelPending  = false;
+    _lastJogSign    = 0;
     _lastJogMs   = millis();
     _lastPosMs = 0; // force immediate position poll on first tick
     encoder.setPosition(0);
