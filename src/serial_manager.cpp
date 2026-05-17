@@ -75,6 +75,17 @@ bool SerialManager::isReady() {
   return Serial1;
 }
 
+void SerialManager::recoverUart() {
+  // Re-initialize the SAMD21 SERCOM to clear any framing/overrun error flags
+  // that cause subsequent reads to return nothing despite GRBL sending data.
+  Serial1.end();
+  delay(20);
+  Serial1.begin(115200);
+  delay(50);
+  while (Serial1.available()) Serial1.read();
+  Log::nav("Serial1 reinitialized");
+}
+
 void SerialManager::softResetAndWait() {
   Log::nav("soft reset");
   Log::sendByte(0x18);

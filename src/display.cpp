@@ -82,6 +82,51 @@ void displayJog(char axis, float posX, float posY) {
   u8g2.sendBuffer();
 }
 
+void displayAlarm(int8_t alarmCode, int selected) {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);
+  u8g2.setDrawColor(1);
+  u8g2.setFontPosCenter();
+
+  // Row 0: title
+  centeredText("ALARM", 64, 11);
+
+  // Row 1: alarm description
+  char alarmBuf[20];
+  if      (alarmCode == 0)  strcpy(alarmBuf, "! Locked");
+  else if (alarmCode == 1)  strcpy(alarmBuf, "! Hard Limit");
+  else if (alarmCode == 2)  strcpy(alarmBuf, "! Soft Limit");
+  else if (alarmCode == 3)  strcpy(alarmBuf, "! Reset/Motion");
+  else if (alarmCode == 7)  strcpy(alarmBuf, "! Homing: no sw");
+  else if (alarmCode == 8)  strcpy(alarmBuf, "! Homing: failed");
+  else if (alarmCode == 9)  strcpy(alarmBuf, "! Homing: pulloff");
+  else if (alarmCode == -1) strcpy(alarmBuf, "! GRBL reset");
+  else if (alarmCode == -2) strcpy(alarmBuf, "! No response");
+  else                      snprintf(alarmBuf, sizeof(alarmBuf), "! Alarm: %d", alarmCode);
+  centeredText(alarmBuf, 64, 32);
+
+  // Row 2: Unlock / Reset buttons
+  if (selected == 0) {
+    u8g2.setDrawColor(1); u8g2.drawBox(0, 43, 63, 21); u8g2.setDrawColor(0);
+  } else {
+    u8g2.setDrawColor(1);
+  }
+  centeredText("Unlock", 32, 53);
+
+  u8g2.setDrawColor(1);
+  u8g2.drawVLine(64, 43, 21);
+
+  if (selected == 1) {
+    u8g2.setDrawColor(1); u8g2.drawBox(65, 43, 63, 21); u8g2.setDrawColor(0);
+  } else {
+    u8g2.setDrawColor(1);
+  }
+  centeredText("Reset", 96, 53);
+
+  u8g2.setDrawColor(1);
+  u8g2.sendBuffer();
+}
+
 void displayChangeSettings(Setting setting) {
   u8g2.setDrawColor(1);
   u8g2.clearBuffer();
@@ -155,11 +200,22 @@ void displayPlot(const char* filename, int selected, float progress, bool paused
     else                     snprintf(alarmBuf, sizeof(alarmBuf), "! Alarm: %d", alarmCode);
     centeredText(alarmBuf, 64, 28);
 
-    // Row 2: single full-width Unlock button (always highlighted)
+    // Row 2: Unlock / Reset buttons
+    u8g2.setFontPosCenter();
+    if (selected == 0) {
+      u8g2.setDrawColor(1); u8g2.drawBox(0, 43, 63, 21); u8g2.setDrawColor(0);
+    } else {
+      u8g2.setDrawColor(1);
+    }
+    centeredText("Unlock", 32, 53);
     u8g2.setDrawColor(1);
-    u8g2.drawBox(0, 43, 128, 21);
-    u8g2.setDrawColor(0);
-    centeredText("Unlock ($X)", 64, 53);
+    u8g2.drawVLine(64, 43, 21);
+    if (selected == 1) {
+      u8g2.setDrawColor(1); u8g2.drawBox(65, 43, 63, 21); u8g2.setDrawColor(0);
+    } else {
+      u8g2.setDrawColor(1);
+    }
+    centeredText("Reset", 96, 53);
     u8g2.setDrawColor(1);
     u8g2.sendBuffer();
     return;

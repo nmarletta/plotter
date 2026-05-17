@@ -43,6 +43,10 @@ public:
   // Call this before any $xx=val or $$ command if limit switches are noisy.
   void softResetAndWait();
 
+  // Re-initialize Serial1. Called after a TIMEOUT to recover the SAMD21
+  // SERCOM from a framing/overrun error state that silently drops incoming bytes.
+  void recoverUart();
+
   // Returns true if Serial1 is initialized and ready for communication.
   bool isReady();
 
