@@ -15,7 +15,7 @@ bool SerialManager::begin(unsigned long baud) {
       Serial1.read();
     }
   }
-  _lastResponse = "";
+  _lastResponse[0] = '\0';
   return true;
 }
 
@@ -39,10 +39,9 @@ bool SerialManager::waitForOk(unsigned int timeout_ms) {
       buf[len] = '\0';
       if (len > 0) {
         Log::recv(buf);
-        String s(buf);
-        GRBLStatus st = parseStatus(s);
-        if (st == GRBL_OK)    { _lastResponse = s; return true; }
-        if (st == GRBL_ERROR || st == GRBL_ALARM) { _lastResponse = s; return false; }
+        GRBLStatus st = parseStatus(buf);
+        if (st == GRBL_OK)    { strncpy(_lastResponse, buf, sizeof(_lastResponse) - 1); _lastResponse[sizeof(_lastResponse)-1] = '\0'; return true; }
+        if (st == GRBL_ERROR || st == GRBL_ALARM) { strncpy(_lastResponse, buf, sizeof(_lastResponse) - 1); _lastResponse[sizeof(_lastResponse)-1] = '\0'; return false; }
         // status report or unknown line — keep waiting
       }
       len = 0;
@@ -51,22 +50,18 @@ bool SerialManager::waitForOk(unsigned int timeout_ms) {
     }
   }
   { char t[32]; snprintf(t, sizeof(t), "TIMEOUT (%d bytes)", totalBytes); Log::err(t); }
-  _lastResponse = "TIMEOUT";
+  strncpy(_lastResponse, "TIMEOUT", sizeof(_lastResponse) - 1);
   return false;
 }
 
-String SerialManager::getLastResponse() {
+const char* SerialManager::getLastResponse() {
   return _lastResponse;
 }
 
-GRBLStatus SerialManager::parseStatus(const String& response) {
-  if (response.startsWith("ok")) {
-    return GRBL_OK;
-  } else if (response.startsWith("error:")) {
-    return GRBL_ERROR;
-  } else if (response.startsWith("ALARM:")) {
-    return GRBL_ALARM;
-  }
+GRBLStatus SerialManager::parseStatus(const char* response) {
+  if (strncmp(response, "ok",     2) == 0) return GRBL_OK;
+  if (strncmp(response, "error:", 6) == 0) return GRBL_ERROR;
+  if (strncmp(response, "ALARM:", 6) == 0) return GRBL_ALARM;
   return GRBL_UNKNOWN;
 }
 

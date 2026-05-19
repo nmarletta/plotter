@@ -55,9 +55,9 @@ static void sendPen(int sValue, bool isUp, const char *label) {
 
   // Command timed out or errored. Probe GRBL with '?' to determine if it
   // is still alive (real-time command, interrupt-driven in GRBL firmware).
-  const String &resp = serialMgr.getLastResponse();
-  Log::err(resp.c_str());
-  if (resp == "TIMEOUT") {
+  const char* resp = serialMgr.getLastResponse();
+  Log::err(resp);
+  if (strcmp(resp, "TIMEOUT") == 0) {
     Serial1.write('?');
     delay(150);
     if (Serial1.available()) {
@@ -70,11 +70,11 @@ static void sendPen(int sValue, bool isUp, const char *label) {
     }
   }
 
-  if (resp.startsWith("ALARM:")) {
-    _ctrlAlarmCode = (int8_t)atoi(resp.c_str() + 6);
-  } else if (resp == "error:9") {
+  if (strncmp(resp, "ALARM:", 6) == 0) {
+    _ctrlAlarmCode = (int8_t)atoi(resp + 6);
+  } else if (strcmp(resp, "error:9") == 0) {
     _ctrlAlarmCode = 0;
-  } else if (resp == "TIMEOUT") {
+  } else if (strcmp(resp, "TIMEOUT") == 0) {
     _ctrlAlarmCode = -2;
   } else {
     return;
@@ -243,7 +243,7 @@ void control_menuSelect(int i) {
     bool ok = serialMgr.waitForOk(500);
     while (Serial1.available()) Serial1.read();
     if (ok) Log::nav("unlocked");
-    else    Log::err(serialMgr.getLastResponse().c_str());
+    else    Log::err(serialMgr.getLastResponse());
     encoder.setPosition(_selectedControl);
     displayList(encoder.getPosition(), control_menuItems, control_menuSize);
   }

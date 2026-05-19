@@ -96,7 +96,7 @@ void selectSetting(int i) {
         settings[selectedSetting].command.c_str(),
         (double)settings[selectedSetting].value);
       bool ok = serialMgr.sendLine(buf); // sendLine logs [>>] itself
-      if (!ok) Log::err(serialMgr.getLastResponse().c_str());
+      if (!ok) Log::err(serialMgr.getLastResponse());
     }
     encoder.setPosition(selectedSetting);
     changeSetting = false;

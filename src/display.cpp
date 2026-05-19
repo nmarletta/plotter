@@ -18,7 +18,7 @@ void displayList(int selected, String list[], int size) {
   int startIndex;
   if (selected == 0) {
     startIndex = selected;
-  } else if (selected == size - 1) {
+  } else if (selected == size - 1 && size > 2) { // added size > 2
     startIndex = selected - 2;
   } else {
     startIndex = selected - 1;
@@ -33,9 +33,6 @@ void displayList(int selected, String list[], int size) {
     if (displayIndex < size) {
       bool highlighted = displayIndex == selected ? true : false;
       displayLine(i, highlighted, list[displayIndex]);
-      // Serial.println("a");
-      // Serial.println(list[displayIndex]);
-      // Serial.println("b");
     }
   }
 

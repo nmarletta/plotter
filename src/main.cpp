@@ -41,6 +41,8 @@ RotaryButton encoder(PIN_ENCODER_DT, PIN_ENCODER_CLK, PIN_ENCODER_SW);
 
 void setup() {
   Serial.begin(250000);
+  Serial.begin(250000);
+  Serial.println("[DBG] MKR BOOTED");
 
   // Hold NINA WiFi in reset and deassert its CS so it never drives the SPI bus.
   pinMode(NINA_RESETN, OUTPUT); digitalWrite(NINA_RESETN, LOW);

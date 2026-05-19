@@ -28,10 +28,10 @@ public:
   bool waitForOk(unsigned int timeout_ms = 1000);
 
   // Retrieve the last stored GRBL response or error string.
-  String getLastResponse();
+  const char* getLastResponse();
 
   // Parse a GRBL response string and return its status type.
-  GRBLStatus parseStatus(const String& response);
+  GRBLStatus parseStatus(const char* response);
 
   // Send $$ to GRBL and populate an array of command=value pairs.
   // Calls onSetting(command, value) for each $xx=value line received.
@@ -51,7 +51,7 @@ public:
   bool isReady();
 
 private:
-  String _lastResponse;  // Stores last GRBL response (error message, timeout, etc.)
+  char _lastResponse[64];  // Stores last GRBL response (error message, timeout, etc.)
 };
 
 #endif // SERIAL_MANAGER_H
