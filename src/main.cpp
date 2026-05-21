@@ -41,7 +41,6 @@ RotaryButton encoder(PIN_ENCODER_DT, PIN_ENCODER_CLK, PIN_ENCODER_SW);
 
 void setup() {
   Serial.begin(250000);
-  Serial.begin(250000);
   Serial.println("[DBG] MKR BOOTED");
 
   // Hold NINA WiFi in reset and deassert its CS so it never drives the SPI bus.
@@ -50,17 +49,13 @@ void setup() {
 
   encoder.begin();
 
-  // SD init BEFORE display. SdFat calls SPI.begin() internally here (once,
-  // uninterrupted). u8g2.begin() calls SPI.begin() again after this completes,
-  // which is fine — SD file ops use beginTransaction()/endTransaction().
   pinMode(PIN_SDCARD_CS, OUTPUT); digitalWrite(PIN_SDCARD_CS, HIGH);
   delay(100);
   sd.begin(SdSpiConfig(PIN_SDCARD_CS, SHARED_SPI, SD_SCK_HZ(400000)));
 
-  // Display init AFTER SD. u8g2 calls SPI.begin() internally; that's fine
-  // because SD uses beginTransaction() / endTransaction() on every access.
   u8g2.begin();
   pinMode(PIN_FAN, OUTPUT);
+  
   serialMgr.begin(115200);
   loadPenCfg(); // restore pen S values from /pen.cfg on SD
 

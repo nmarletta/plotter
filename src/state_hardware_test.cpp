@@ -5,6 +5,7 @@
 #include "state_hardware_test.h"
 #include <U8g2lib.h>
 #include "logger.h"
+#include "globals.h"
 
 #include <SdFat.h>
 extern SdFat sd;
@@ -98,45 +99,13 @@ void state_hardware_test() {
   if (encoder.pressed()) {
     const char *cmd = kCmds[cmd_idx];
     char logbuf[64];
-    snprintf(logbuf, sizeof(logbuf), "[DBG] Button pressed: idx=%d, cmd=%s", cmd_idx, cmd);
+    snprintf(logbuf, sizeof(logbuf), "[DBG] Sending: %s", cmd);
     dbg_log(logbuf);
-    Log::send(cmd);
-    dbg_log("[DBG] Logged command");
-    Serial1.println(cmd);
-    dbg_log("[DBG] Serial sent");
-    unsigned long dl = millis() + 10000UL;
-    char rbuf[64]; uint8_t rlen = 0;
-    bool got = false;
-    dbg_log("[DBG] Before while");
-    while (millis() < dl) {
-      if (!Serial1.available()) continue;
-      char c = (char)Serial1.read();
-      if (c == '\r') continue;
-      if (c == '\n') {
-        rbuf[rlen] = '\0';
-        if (rlen > 0) {
-          Log::recv(rbuf);
-          snprintf(logbuf, sizeof(logbuf), "[DBG] Line: '%s'", rbuf);
-          dbg_log(logbuf);
-          snprintf(cmd_resp, sizeof(cmd_resp), "%s", rbuf);
-          got = true;
-          if (strncmp(rbuf, "ok",    2) == 0 ||
-              strncmp(rbuf, "error", 5) == 0 ||
-              strncmp(rbuf, "ALARM", 5) == 0) break;
-        }
-        rlen = 0;
-      } else if (rlen < sizeof(rbuf) - 1) {
-        rbuf[rlen++] = c;
-      }
-    }
-    if (!got) {
-      snprintf(logbuf, sizeof(logbuf), "[DBG] Response: TIMEOUT after 10s for cmd=%s", cmd);
-      dbg_log(logbuf);
-      snprintf(cmd_resp, sizeof(cmd_resp), "TIMEOUT");
-    }
+    serialMgr.sendLine(cmd, 10000);
+    snprintf(cmd_resp, sizeof(cmd_resp), "%s", serialMgr.getLastResponse());
+    snprintf(logbuf, sizeof(logbuf), "[DBG] Response: %s", cmd_resp);
+    dbg_log(logbuf);
     screen_dirty = true;
     btn_down = false;
-    dbg_log("[DBG] Button press handler finished");
   }
-  //dbg_log("[DBG] Exiting state_hardware_test normally");
 }

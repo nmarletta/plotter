@@ -22,7 +22,7 @@ public:
 
 private:
     GCodeStreamer &_stream;
-    String _filepath;
+    char _filepath[64];
     int _menuIndex = 0;
     bool _confirmCancel = false;
     bool _showingPaused = false;

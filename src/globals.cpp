@@ -1,7 +1,7 @@
 #include "globals.h"
 
 State currentState;
-SerialManager serialMgr;
+SerialManager serialMgr(Serial1);
 String selectedFile = "";
 
 int  g_penDownS   = 100;  // M5 S100 = pen down (grbl-servo fork)

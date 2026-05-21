@@ -1,5 +1,6 @@
 #include "state_control.h"
 #include "logger.h"
+#include "globals.h"
 
 static const int  kJogIntervalMs  = 80;   // ms to accumulate encoder ticks before sending
 static const int  kJogFeed        = 1000; // mm/min
@@ -21,8 +22,6 @@ static unsigned long _lastJogMs       = 0;
 static unsigned long _lastDisplayMs   = 0;
 static unsigned long _cancelStartMs   = 0; // when _cancelPending was set
 static float         _dispPos         = 0; // local mm position for display
-static char          _grblLine[64];
-static uint8_t       _grblLineLen     = 0;
 static bool          _jogAlarm        = false;
 static bool          _controlAlarm    = false;
 static int8_t        _ctrlAlarmCode   = 0;
@@ -34,41 +33,23 @@ static int           _lastJogSign     = 0;
 // Flush any bytes sitting in the Serial1 buffer.
 static void flushGrbl() {
   delay(50);
-  while (Serial1.available()) Serial1.read();
+  serialMgr.flushRx();
 }
 
 // Send a pen command and wait for GRBL's ok.
-static void sendPen(int sValue, bool isUp, const char *label) {
-  Log::nav(label);
-  while (Serial1.available()) Serial1.read(); // flush
+static void sendPen(int sValue, const char *cmd) {
   char buf[16];
-  if (isUp) {
-    snprintf(buf, sizeof(buf), "M4 S%d", sValue);
-  } else {
-    snprintf(buf, sizeof(buf), "M5 S%d", sValue);
-  }
-  Log::send(buf);
-  Serial1.println(buf);
-  bool ok = serialMgr.waitForOk(kPenTimeoutMs);
-  while (Serial1.available()) Serial1.read();
+  snprintf(buf, sizeof(buf), "%s S%d", cmd, sValue);
+  Log::nav(buf);
+  serialMgr.flushRx();
+  bool ok = serialMgr.sendLine(buf, kPenTimeoutMs);
+  serialMgr.flushRx();
   if (ok) return;
 
-  // Command timed out or errored. Probe GRBL with '?' to determine if it
-  // is still alive (real-time command, interrupt-driven in GRBL firmware).
+  // Command timed out or errored.
   const char* resp = serialMgr.getLastResponse();
   Log::err(resp);
-  if (strcmp(resp, "TIMEOUT") == 0) {
-    Serial1.write('?');
-    delay(150);
-    if (Serial1.available()) {
-      char probe[80]; uint8_t plen = 0;
-      while (Serial1.available() && plen < 79) probe[plen++] = (char)Serial1.read();
-      probe[plen] = '\0';
-      Log::nav(probe); // logs GRBL state report — check for <Idle|...> or <Run|...>
-    } else {
-      Log::nav("GRBL unresponsive to ?"); // GRBL fully hung, needs hardware reset
-    }
-  }
+  if (strcmp(resp, "TIMEOUT") == 0) serialMgr.probeStatus();
 
   if (strncmp(resp, "ALARM:", 6) == 0) {
     _ctrlAlarmCode = (int8_t)atoi(resp + 6);
@@ -88,21 +69,12 @@ static void sendPen(int sValue, bool isUp, const char *label) {
 // Read pending GRBL bytes; parse ok/alarm.
 // No ? polling here — SPI display updates drop UART bytes on SAMD21.
 static void pollGrbl() {
-  while (Serial1.available()) {
-    char c = (char)Serial1.read();
-    if (c == '\r') continue;
-    if (c == '\n') {
-      _grblLine[_grblLineLen] = '\0';
-      if (_grblLineLen > 0) {
-        if (_grblLine[0] != '<') Log::recv(_grblLine); // skip status reports
-        if (strncmp(_grblLine, "ALARM:", 6) == 0) { _jogAlarm = true; _ctrlAlarmCode = (int8_t)atoi(_grblLine + 6); }
-        if (strncmp(_grblLine, "Grbl ",  5) == 0) { _jogAlarm = true; _ctrlAlarmCode = -1; }
-        if (strcmp(_grblLine, "ok") == 0) { _pendingJog = false; _cancelPending = false; }
-      }
-      _grblLineLen = 0;
-    } else if (_grblLineLen < sizeof(_grblLine) - 1) {
-      _grblLine[_grblLineLen++] = c;
-    }
+  char line[64];
+  while (serialMgr.readLine(line, sizeof(line))) {
+    if (line[0] != '<') Log::recv(line); // skip status reports
+    if (strncmp(line, "ALARM:", 6) == 0) { _jogAlarm = true; _ctrlAlarmCode = (int8_t)atoi(line + 6); }
+    if (strncmp(line, "Grbl ",  5) == 0) { _jogAlarm = true; _ctrlAlarmCode = -1; }
+    if (strcmp(line, "ok") == 0) { _pendingJog = false; _cancelPending = false; }
   }
 }
 
@@ -193,20 +165,15 @@ void state_control() {
     if (encoder.pressed()) {
       if (_alarmBtn == 0) {
         // Unlock: send $X, stay in control
-        Log::send("$X");
-        Serial1.println("$X");
-        serialMgr.waitForOk(500);
-        while (Serial1.available()) Serial1.read();
+        serialMgr.sendLine("$X", 500);
+        serialMgr.flushRx();
         Log::nav("alarm: unlocked");
         _controlAlarm = false; _ctrlAlarmCode = 0; _alarmBtn = 0;
         encoder.setPosition(_selectedControl);
         displayList(encoder.getPosition(), control_menuItems, control_menuSize);
       } else {
         // Reset: soft reset, return to MAIN
-        Log::sendByte(0x18);
-        Serial1.write(0x18);
-        delay(500);
-        while (Serial1.available()) Serial1.read();
+        serialMgr.softResetAndWait();
         Log::nav("alarm: soft reset");
         _controlAlarm = false; _ctrlAlarmCode = 0; _alarmBtn = 0;
         control_active = false;
@@ -228,8 +195,8 @@ void state_control() {
 void control_menuSelect(int i) {
   _selectedControl = i;
   if      (i == 0) { currentState = MAIN; control_active = false; }
-  else if (i == 1) { sendPen(g_penUpS,   true,  "pen up"); }
-  else if (i == 2) { sendPen(g_penDownS, false, "pen down"); }
+  else if (i == 1) { sendPen(g_penUpS,   "M4"); }
+  else if (i == 2) { sendPen(g_penDownS, "M5"); }
   else if (i == 3 || i == 4) {
     _jogAxis = i - 3; _jogAccum = 0; _jogAlarm = false;
     _pendingJog = false; _cancelPending = false; _lastJogSign = 0;
@@ -238,20 +205,15 @@ void control_menuSelect(int i) {
     displayJog(_jogAxis == 0 ? 'X' : 'Y', 0, 0);
   }
   else if (i == 5) {
-    Log::send("$X");
-    Serial1.println("$X");
-    bool ok = serialMgr.waitForOk(500);
-    while (Serial1.available()) Serial1.read();
+    bool ok = serialMgr.sendLine("$X", 500);
+    serialMgr.flushRx();
     if (ok) Log::nav("unlocked");
     else    Log::err(serialMgr.getLastResponse());
     encoder.setPosition(_selectedControl);
     displayList(encoder.getPosition(), control_menuItems, control_menuSize);
   }
   else if (i == 6) {
-    Log::sendByte(0x18);
-    Serial1.write(0x18);
-    delay(500);
-    while (Serial1.available()) Serial1.read();
+    serialMgr.softResetAndWait();
     Log::nav("soft reset");
     control_active = false;
     currentState = MAIN;

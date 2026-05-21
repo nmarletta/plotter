@@ -1,11 +1,13 @@
 #include "state_plot.h"
+#include "sd_line_source.h"
 
 #define PIN_FAN 2
 
 StatePlot::StatePlot(GCodeStreamer &streamer) : _stream(streamer) {}
 
 void StatePlot::enter(const char *filepath) {
-    _filepath = String(filepath);
+    strncpy(_filepath, filepath, sizeof(_filepath) - 1);
+    _filepath[sizeof(_filepath) - 1] = '\0';
     _menuIndex = 0;
     _confirmCancel = false;
     _showingPaused = false;
@@ -96,7 +98,8 @@ void StatePlot::doCancelConfirmed() {
 extern RotaryButton encoder;
 extern State currentState;
 
-static GCodeStreamer _gcode_streamer(Serial1, A5); // Serial1=GRBL, A5=SD CS pin
+static SdLineSource  _gcode_src;
+static GCodeStreamer _gcode_streamer(Serial1, _gcode_src);
 static StatePlot     _state_plot(_gcode_streamer);
 static bool          _plot_entered = false;
 
@@ -135,9 +138,8 @@ void StatePlot::refreshDisplay() {
     bool paused = (_stream.status() == GCodeStatus::Paused);
 
     // Strip directory from filepath for display
-    const char* full = _filepath.c_str();
-    const char* slash = strrchr(full, '/');
-    const char* fname = slash ? slash + 1 : full;
+    const char* slash = strrchr(_filepath, '/');
+    const char* fname = slash ? slash + 1 : _filepath;
 
     bool error     = (_stream.status() == GCodeStatus::Error);
     bool resetting = (_stream.status() == GCodeStatus::Resetting);

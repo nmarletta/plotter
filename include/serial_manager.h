@@ -1,57 +1,51 @@
 // serial_manager.h
-// SerialManager: Handles bidirectional serial communication with GRBL Arduino.
-// All GRBL communication goes through Serial1 (TX=pin14, RX=pin13) at 115200 baud.
+// SerialManager: Handles bidirectional serial communication with GRBL.
+//
+// Inject any Stream for testing; on Arduino pass Serial1 (HardwareSerial).
 
 #ifndef SERIAL_MANAGER_H
 #define SERIAL_MANAGER_H
 
 #include <Arduino.h>
 
-// GRBL response status codes
 enum GRBLStatus {
-  GRBL_OK,       // "ok" - command accepted
-  GRBL_ERROR,    // "error:X" - command error
-  GRBL_ALARM,    // "ALARM:X" - alarm condition (requires $X to clear)
-  GRBL_TIMEOUT,  // No response within timeout period
-  GRBL_UNKNOWN   // Unknown or status report response
+  GRBL_OK,
+  GRBL_ERROR,
+  GRBL_ALARM,
+  GRBL_TIMEOUT,
+  GRBL_UNKNOWN
 };
 
 class SerialManager {
 public:
-  // Initialize Serial1 at given baud rate. Returns true on success.
-  bool begin(unsigned long baud);
+#ifdef ARDUINO
+  // Production: pass Serial1. Enables begin(baud) and recoverUart().
+  explicit SerialManager(HardwareSerial& grbl);
+#endif
+  // Testing: inject any Stream. begin() skips baud-rate init; recoverUart() is a no-op.
+  explicit SerialManager(Stream& grbl);
 
-  // Send a single G-code line to GRBL and wait for ok/error. Returns true on ok.
-  bool sendLine(const char* line);
-
-  // Block until GRBL responds ok/error or timeout_ms elapses. Returns true on ok.
+  bool begin(unsigned long baud = 115200);
+  bool sendLine(const char* line, unsigned int timeout_ms = 3000);
   bool waitForOk(unsigned int timeout_ms = 1000);
-
-  // Retrieve the last stored GRBL response or error string.
   const char* getLastResponse();
-
-  // Parse a GRBL response string and return its status type.
   GRBLStatus parseStatus(const char* response);
-
-  // Send $$ to GRBL and populate an array of command=value pairs.
-  // Calls onSetting(command, value) for each $xx=value line received.
-  // Returns true if GRBL responded with ok.
   bool querySettings(void (*onSetting)(const String& cmd, float value), unsigned int timeout_ms = 2000);
-
-  // Send 0x18 soft-reset and wait for GRBL to restart.
-  // Puts GRBL into STATE_ALARM, which suppresses the hard-limit pin-change ISR.
-  // Call this before any $xx=val or $$ command if limit switches are noisy.
   void softResetAndWait();
-
-  // Re-initialize Serial1. Called after a TIMEOUT to recover the SAMD21
-  // SERCOM from a framing/overrun error state that silently drops incoming bytes.
   void recoverUart();
-
-  // Returns true if Serial1 is initialized and ready for communication.
   bool isReady();
+  bool readLine(char* buf, uint8_t maxLen);
+  void flushRx();
+  void probeStatus();
 
 private:
-  char _lastResponse[64];  // Stores last GRBL response (error message, timeout, etc.)
+  Stream& _grbl;
+#ifdef ARDUINO
+  HardwareSerial* _hw;  // non-null only when constructed with HardwareSerial
+#endif
+  char    _lastResponse[64];
+  char    _rxBuf[64];
+  uint8_t _rxLen = 0;
 };
 
 #endif // SERIAL_MANAGER_H

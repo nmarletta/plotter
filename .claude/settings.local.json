@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "SlashCommand(/bmad:bmm:workflows:workflow-status)"
+      "SlashCommand(/bmad:bmm:workflows:workflow-status)",
+      "Bash(ls /dev/cu.usbmodem* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null)",
+      "Read(//dev/**)",
+      "Bash(GRBL_PORT=/dev/cu.usbmodem1301 pio test -e test_native_grbl)"
     ],
     "deny": [],
     "ask": []

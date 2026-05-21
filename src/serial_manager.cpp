@@ -1,28 +1,40 @@
 // serial_manager.cpp
-// Implementation of SerialManager for GRBL serial communication.
-// Uses Serial1 hardware UART (TX=pin14, RX=pin13) exclusively for GRBL.
-// CRITICAL: Never use Serial1 for debug output - Serial only for USB debug.
-
 #include "serial_manager.h"
 #include "logger.h"
 
+// ---- Constructors ----------------------------------------------------------
+
+#ifdef ARDUINO
+SerialManager::SerialManager(HardwareSerial& grbl)
+    : _grbl(grbl), _hw(&grbl) { _lastResponse[0] = '\0'; }
+#endif
+
+SerialManager::SerialManager(Stream& grbl)
+    : _grbl(grbl)
+#ifdef ARDUINO
+    , _hw(nullptr)
+#endif
+    { _lastResponse[0] = '\0'; }
+
+// ---- Public methods --------------------------------------------------------
+
 bool SerialManager::begin(unsigned long baud) {
-  Serial1.begin(baud);
-  // Flush any GRBL startup greeting messages
+#ifdef ARDUINO
+  if (_hw) _hw->begin(baud);
+#endif
   unsigned long startTime = millis();
   while (millis() - startTime < 500) {
-    if (Serial1.available()) {
-      Serial1.read();
-    }
+    if (_grbl.available()) _grbl.read();
   }
   _lastResponse[0] = '\0';
+  _rxLen = 0;
   return true;
 }
 
-bool SerialManager::sendLine(const char* line) {
+bool SerialManager::sendLine(const char* line, unsigned int timeout_ms) {
   Log::send(line);
-  Serial1.println(line);
-  return waitForOk(3000); // 3s: GRBL writes all settings to EEPROM (~250-500ms) before sending ok
+  _grbl.println(line);
+  return waitForOk(timeout_ms);
 }
 
 bool SerialManager::waitForOk(unsigned int timeout_ms) {
@@ -31,8 +43,8 @@ bool SerialManager::waitForOk(unsigned int timeout_ms) {
   uint8_t len = 0;
   int totalBytes = 0;
   while (millis() < deadline) {
-    if (!Serial1.available()) continue;
-    char c = (char)Serial1.read();
+    if (!_grbl.available()) continue;
+    char c = (char)_grbl.read();
     totalBytes++;
     if (c == '\r') continue;
     if (c == '\n') {
@@ -40,9 +52,17 @@ bool SerialManager::waitForOk(unsigned int timeout_ms) {
       if (len > 0) {
         Log::recv(buf);
         GRBLStatus st = parseStatus(buf);
-        if (st == GRBL_OK)    { strncpy(_lastResponse, buf, sizeof(_lastResponse) - 1); _lastResponse[sizeof(_lastResponse)-1] = '\0'; return true; }
-        if (st == GRBL_ERROR || st == GRBL_ALARM) { strncpy(_lastResponse, buf, sizeof(_lastResponse) - 1); _lastResponse[sizeof(_lastResponse)-1] = '\0'; return false; }
-        // status report or unknown line — keep waiting
+        if (st == GRBL_OK) {
+          strncpy(_lastResponse, buf, sizeof(_lastResponse) - 1);
+          _lastResponse[sizeof(_lastResponse)-1] = '\0';
+          return true;
+        }
+        if (st == GRBL_ERROR || st == GRBL_ALARM) {
+          strncpy(_lastResponse, buf, sizeof(_lastResponse) - 1);
+          _lastResponse[sizeof(_lastResponse)-1] = '\0';
+          return false;
+        }
+        // status report or unknown — keep waiting
       }
       len = 0;
     } else if (len < sizeof(buf) - 1) {
@@ -66,50 +86,87 @@ GRBLStatus SerialManager::parseStatus(const char* response) {
 }
 
 bool SerialManager::isReady() {
-  // Serial1 is a hardware UART - it is ready after begin() is called
-  return Serial1;
+#ifdef ARDUINO
+  if (_hw) return (bool)*_hw;
+#endif
+  return true;
+}
+
+bool SerialManager::readLine(char* buf, uint8_t maxLen) {
+  while (_grbl.available()) {
+    char c = (char)_grbl.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      _rxBuf[_rxLen] = '\0';
+      if (_rxLen > 0) {
+        uint8_t copyLen = (_rxLen < maxLen - 1) ? _rxLen : (uint8_t)(maxLen - 1);
+        memcpy(buf, _rxBuf, copyLen);
+        buf[copyLen] = '\0';
+        _rxLen = 0;
+        return true;
+      }
+      _rxLen = 0;
+    } else if (_rxLen < sizeof(_rxBuf) - 1) {
+      _rxBuf[_rxLen++] = c;
+    }
+  }
+  return false;
+}
+
+void SerialManager::flushRx() {
+  while (_grbl.available()) _grbl.read();
+  _rxLen = 0;
+}
+
+void SerialManager::probeStatus() {
+  _grbl.write('?');
+  delay(150);
+  if (_grbl.available()) {
+    char buf[80]; uint8_t len = 0;
+    while (_grbl.available() && len < sizeof(buf) - 1) buf[len++] = (char)_grbl.read();
+    buf[len] = '\0';
+    Log::nav(buf);
+  } else {
+    Log::nav("GRBL unresponsive to ?");
+  }
 }
 
 void SerialManager::recoverUart() {
-  // Re-initialize the SAMD21 SERCOM to clear any framing/overrun error flags
-  // that cause subsequent reads to return nothing despite GRBL sending data.
-  Serial1.end();
+#ifdef ARDUINO
+  if (!_hw) return;
+  _hw->end();
   delay(20);
-  Serial1.begin(115200);
+  _hw->begin(115200);
   delay(50);
-  while (Serial1.available()) Serial1.read();
+  while (_grbl.available()) _grbl.read();
+#endif
   Log::nav("Serial1 reinitialized");
 }
 
 void SerialManager::softResetAndWait() {
   Log::nav("soft reset");
   Log::sendByte(0x18);
-  Serial1.write(0x18); // CTRL-X: GRBL real-time soft reset
-  // GRBL startup banner is ~60 bytes; 500ms is ample for the AVR to reboot
-  // and enter STATE_ALARM (which suppresses the hard-limit ISR).
+  _grbl.write((uint8_t)0x18);
   unsigned long deadline = millis() + 500;
   int n = 0;
   while (millis() < deadline) {
-    if (Serial1.available()) { Serial1.read(); n++; }
+    if (_grbl.available()) { _grbl.read(); n++; }
   }
   { char t[40]; snprintf(t, sizeof(t), "reset done, discarded %d bytes", n); Log::nav(t); }
 }
 
 bool SerialManager::querySettings(void (*onSetting)(const String& cmd, float value), unsigned int timeout_ms) {
-  // flush any pending input
-  while (Serial1.available()) Serial1.read();
-
+  while (_grbl.available()) _grbl.read();
   Log::send("$$");
-  Serial1.println("$$");
-  Log::nav("QSET: sent");
+  _grbl.println("$$");
 
   unsigned long deadline = millis() + timeout_ms;
   char buf[64];
   uint8_t len = 0;
   int nSettings = 0;
   while (millis() < deadline) {
-    if (!Serial1.available()) continue;
-    char c = (char)Serial1.read();
+    if (!_grbl.available()) continue;
+    char c = (char)_grbl.read();
     if (c == '\r') continue;
     if (c == '\n') {
       buf[len] = '\0';
@@ -139,5 +196,5 @@ bool SerialManager::querySettings(void (*onSetting)(const String& cmd, float val
     }
   }
   { char t[48]; snprintf(t, sizeof(t), "QSET: TIMEOUT, got %d settings", nSettings); Log::err(t); }
-  return false; // timeout
+  return false;
 }
