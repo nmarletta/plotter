@@ -33,5 +33,6 @@ extern String selectedFile; // Set by state_files before entering PLOT state
 extern int  g_penDownS;    // S value sent for pen down
 extern int  g_penUpS;      // S value sent for pen up
 extern bool g_overwriteS;  // if true, M3/M5 S values in gcode are replaced
+extern int  g_penDelayMs;  // G4 dwell (ms) injected after each pen command; 0 = disabled
 
 #endif

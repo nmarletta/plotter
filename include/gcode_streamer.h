@@ -61,12 +61,14 @@ private:
     static const uint32_t kResetTimeoutMs = 3000;
 
     uint8_t  _pending[kQueueDepth];
+    bool     _qInjected[kQueueDepth];   // true = G4 injected by controller, not a real file line
     uint8_t  _qHead = 0, _qTail = 0, _qCount = 0;
     uint8_t  _bufUsed = 0;
 
     char  _pendingLine[80];
-    bool  _hasPendingLine = false;
-    bool  _sentFinalM5    = false;
+    bool  _hasPendingLine    = false;
+    bool  _pendingIsInjected = false;   // true when _pendingLine holds an injected G4
+    bool  _sentFinalM5       = false;
     int8_t _alarmCode     = 0;
 
     unsigned long _lastSaveMs   = 0;

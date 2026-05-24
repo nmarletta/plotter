@@ -66,6 +66,16 @@ inline void applyPenOverwrite(char* line, uint8_t maxLen) {
     else if (strstr(up, "M5")) snprintf(line, maxLen, "M4 S%d", g_penUpS);
 }
 
+// Returns true if the line is a standalone pen command (M3/M4/M5 with no XY motion).
+// Used to decide where to inject a G4 dwell.
+inline bool isPenCommand(const char* line) {
+    char up[80];
+    strncpy(up, line, sizeof(up) - 1); up[sizeof(up)-1] = '\0';
+    for (int i = 0; up[i]; i++) up[i] = (char)toupper((unsigned char)up[i]);
+    if (strchr(up, 'X') || strchr(up, 'Y')) return false;
+    return strstr(up, "M3") || strstr(up, "M4") || strstr(up, "M5");
+}
+
 // Build the progress file path for a given gcode filepath.
 inline void progressPathFor(const char* gcodePath, char* out, uint8_t maxLen) {
     const char* slash = strrchr(gcodePath, '/');

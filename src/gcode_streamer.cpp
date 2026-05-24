@@ -24,8 +24,9 @@ bool GCodeStreamer::start(const char* filepath) {
     strncpy(_filepath, filepath, sizeof(_filepath) - 1);
     _filepath[sizeof(_filepath) - 1] = '\0';
     _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
-    _hasPendingLine = false;
-    _sentFinalM5    = false;
+    _hasPendingLine    = false;
+    _pendingIsInjected = false;
+    _sentFinalM5       = false;
 
     serialMgr.sendLine("$X", 500);
 
@@ -33,12 +34,16 @@ bool GCodeStreamer::start(const char* filepath) {
     _lineNumber = loadProgress(resumeLine) ? resumeLine : 0;
 
     if (!_src.open(filepath)) {
+        char msg[80]; snprintf(msg, sizeof(msg), "cannot open: %s", filepath);
+        Log::err(msg);
         _status = GCodeStatus::Error;
         return false;
     }
 
     // When resuming mid-file, re-send preamble setup lines (before first XY motion).
     if (_lineNumber > 0) {
+        char msg[80]; snprintf(msg, sizeof(msg), "resume: %s from line %lu", filepath, (unsigned long)_lineNumber);
+        Log::str(msg);
         char pLine[80], up[80];
         while (_src.available()) {
             _src.readLine(pLine, sizeof(pLine));
@@ -56,6 +61,10 @@ bool GCodeStreamer::start(const char* filepath) {
 
     _status     = GCodeStatus::Running;
     _lastSaveMs = millis();
+    if (_lineNumber == 0) {
+        char msg[80]; snprintf(msg, sizeof(msg), "start: %s", filepath);
+        Log::str(msg);
+    }
     return true;
 }
 
@@ -63,6 +72,8 @@ void GCodeStreamer::pause() {
     if (_status == GCodeStatus::Running) {
         _grbl.write('!');
         _status = GCodeStatus::Paused;
+        char msg[40]; snprintf(msg, sizeof(msg), "paused at line %lu", (unsigned long)_lineNumber);
+        Log::str(msg);
     }
 }
 
@@ -70,6 +81,8 @@ void GCodeStreamer::resume() {
     if (_status == GCodeStatus::Paused) {
         _grbl.write('~');
         _status = GCodeStatus::Running;
+        char msg[40]; snprintf(msg, sizeof(msg), "resumed at line %lu", (unsigned long)_lineNumber);
+        Log::str(msg);
         pumpLines();
     }
 }
@@ -77,8 +90,11 @@ void GCodeStreamer::resume() {
 void GCodeStreamer::cancel() {
     _grbl.write(0x18);
     _status = GCodeStatus::Canceled;
+    char msg[40]; snprintf(msg, sizeof(msg), "canceled at line %lu", (unsigned long)_lineNumber);
+    Log::str(msg);
     _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
-    _hasPendingLine = false;
+    _hasPendingLine    = false;
+    _pendingIsInjected = false;
 #ifdef ARDUINO
     char p[80]; progressPathFor(_filepath, p, sizeof(p));
     if (sd.exists(p)) sd.remove(p);
@@ -90,8 +106,11 @@ void GCodeStreamer::retryAfterError() {
     _grbl.write(0x18);
     _status = GCodeStatus::Resetting;
     _resetStartMs = millis();
+    char msg[64]; snprintf(msg, sizeof(msg), "retry: soft reset, will resume from line %lu", (unsigned long)_lineNumber);
+    Log::str(msg);
     _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
-    _hasPendingLine = false;
+    _hasPendingLine    = false;
+    _pendingIsInjected = false;
     _src.close();
     // Progress file intentionally kept — start() will resume from saved line.
 }
@@ -117,7 +136,8 @@ float GCodeStreamer::progress() {
 void GCodeStreamer::unlock() {
     serialMgr.sendLine("$X", 500);
     _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
-    _hasPendingLine = false;
+    _hasPendingLine    = false;
+    _pendingIsInjected = false;
     _alarmCode = 0;
     _src.open(_filepath);
     _src.skipLines(_lineNumber);
@@ -131,7 +151,10 @@ void GCodeStreamer::tick() {
     if (_status == GCodeStatus::Paused || _status == GCodeStatus::Canceled || _status == GCodeStatus::Alarm) return;
 
     if (_status == GCodeStatus::Resetting) {
-        if (millis() - _resetStartMs > kResetTimeoutMs) _status = GCodeStatus::Error;
+        if (millis() - _resetStartMs > kResetTimeoutMs) {
+            Log::err("STR: reset timeout — no Grbl banner received");
+            _status = GCodeStatus::Error;
+        }
         return;
     }
 
@@ -162,6 +185,12 @@ void GCodeStreamer::pumpLines() {
             if (_qCount == 0) {
                 _src.close();
                 _status = GCodeStatus::Completed;
+                char msg[80];
+                const char* base = strrchr(_filepath, '/');
+                snprintf(msg, sizeof(msg), "complete: %lu lines in %s",
+                         (unsigned long)_lineNumber,
+                         base ? base + 1 : _filepath);
+                Log::str(msg);
 #ifdef ARDUINO
                 char p[80]; progressPathFor(_filepath, p, sizeof(p));
                 if (sd.exists(p)) sd.remove(p);
@@ -182,10 +211,17 @@ void GCodeStreamer::pumpLines() {
 
         Log::send(line);
         _grbl.println(line);
-        _pending[_qTail] = sendLen;
+        _qInjected[_qTail] = _pendingIsInjected;
+        _pendingIsInjected = false;
+        _pending[_qTail]   = sendLen;
         _qTail   = (_qTail + 1) % kQueueDepth;
         _qCount++;
         _bufUsed += sendLen;
+        if (g_penDelayMs > 0 && isPenCommand(line)) {
+            snprintf(_pendingLine, sizeof(_pendingLine), "G4 P%.3f", g_penDelayMs / 1000.0f);
+            _hasPendingLine    = true;
+            _pendingIsInjected = true;
+        }
     }
 }
 
@@ -204,16 +240,26 @@ void GCodeStreamer::processGrblLine(const char *line) {
     if (strcmp(line, "ok") == 0) {
         if (_qCount > 0) {
             _bufUsed -= _pending[_qHead];
+            if (!_qInjected[_qHead]) _lineNumber++;
             _qHead = (_qHead + 1) % kQueueDepth;
             _qCount--;
-            _lineNumber++;
         }
     } else if (strncmp(line, "ALARM:", 6) == 0) {
         _alarmCode = (int8_t)atoi(line + 6);
         _status = GCodeStatus::Alarm;
         _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
-        _hasPendingLine = false;
+        _hasPendingLine    = false;
+        _pendingIsInjected = false;
+        char msg[80];
+        const char* base = strrchr(_filepath, '/');
+        snprintf(msg, sizeof(msg), "ALARM:%d at line %lu in %s",
+                 _alarmCode, (unsigned long)_lineNumber,
+                 base ? base + 1 : _filepath);
+        Log::err(msg);
     } else if (strncmp(line, "error", 5) == 0) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "error at line %lu: %s", (unsigned long)_lineNumber, line);
+        Log::err(msg);
         _status = GCodeStatus::Error;
     }
 }
@@ -229,6 +275,8 @@ bool GCodeStreamer::saveProgress() {
     pf.print(_lineNumber);
     pf.println();
     pf.close();
+    char msg[40]; snprintf(msg, sizeof(msg), "progress saved: line %lu", (unsigned long)_lineNumber);
+    Log::str(msg);
     return true;
 #else
     return false;
@@ -252,6 +300,8 @@ bool GCodeStreamer::loadProgress(uint32_t& lineOut) {
     numBuf[numLen] = '\0';
     lineOut = (uint32_t)atol(numBuf);
     pf.close();
+    char msg[40]; snprintf(msg, sizeof(msg), "progress loaded: line %lu", (unsigned long)lineOut);
+    Log::str(msg);
     return true;
 #else
     return false;

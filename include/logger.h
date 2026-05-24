@@ -6,6 +6,7 @@
 //  [>>]  bytes sent to GRBL over Serial1
 //  [<<]  bytes received from GRBL
 //  [NAV] menu / state-machine event
+//  [STR] GCodeStreamer lifecycle (start, pause, alarm, complete…)
 //  [ERR] timeout or unexpected response
 
 namespace Log {
@@ -19,6 +20,9 @@ namespace Log {
   inline void nav(const char *msg) {
     Serial.print("[NAV] "); Serial.println(msg);
   }
+  inline void str(const char *msg) {
+    Serial.print("[STR] "); Serial.println(msg);
+  }
   inline void err(const char *msg) {
     Serial.print("[ERR] "); Serial.println(msg);
   }
@@ -29,6 +33,7 @@ namespace Log {
   inline void send(const char *cmd)    { printf("[>>]  %s\n", cmd); }
   inline void recv(const char *resp)   { printf("[<<]  %s\n", resp); }
   inline void nav(const char *msg)     { printf("[NAV] %s\n", msg); }
+  inline void str(const char *msg)     { printf("[STR] %s\n", msg); }
   inline void err(const char *msg)     { printf("[ERR] %s\n", msg); }
   inline void sendByte(uint8_t b)      { printf("[>>]  <0x%02X>\n", b); }
 #endif

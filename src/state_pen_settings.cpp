@@ -20,6 +20,7 @@ static Setting penSettings[] = {
   { "Down", "Pen Down S",  "M5 S_",  10,   0, 1000,  0,  10 },
   { "Up", "Pen Up S",    "M4 S_",  800,   0, 1000,  0,  10 },
   { "M5/M4 S", "Overwrite S", "bool",    0,   0,    1,  0,   1 },
+  { "Delay", "Pen Delay",  "G4 P_",   0,   0, 2000,  0,  10 },
 };
 const int penSettingsSize = sizeof(penSettings) / sizeof(penSettings[0]);
 
@@ -37,6 +38,7 @@ static void savePenCfg() {
   snprintf(buf, sizeof(buf), "penDown=%d\n",  (int)penSettings[1].value); f.print(buf);
   snprintf(buf, sizeof(buf), "penUp=%d\n",    (int)penSettings[2].value); f.print(buf);
   snprintf(buf, sizeof(buf), "overwrite=%d\n",(int)penSettings[3].value); f.print(buf);
+  snprintf(buf, sizeof(buf), "penDelay=%d\n", (int)penSettings[4].value); f.print(buf);
   f.close();
 }
 
@@ -47,6 +49,7 @@ void loadPenCfg() {
     g_penDownS   = (int)penSettings[1].value;
     g_penUpS     = (int)penSettings[2].value;
     g_overwriteS = (bool)penSettings[3].value;
+    g_penDelayMs = (int)penSettings[4].value;
     return;
   }
   char line[32];
@@ -65,6 +68,7 @@ void loadPenCfg() {
         if      (strcmp(line, "penDown")   == 0) penSettings[1].value = val;
         else if (strcmp(line, "penUp")     == 0) penSettings[2].value = val;
         else if (strcmp(line, "overwrite") == 0) penSettings[3].value = val;
+        else if (strcmp(line, "penDelay")  == 0) penSettings[4].value = val;
       }
       len = 0;
     } else {
@@ -75,6 +79,7 @@ void loadPenCfg() {
   g_penDownS   = (int)penSettings[1].value;
   g_penUpS     = (int)penSettings[2].value;
   g_overwriteS = (bool)penSettings[3].value;
+  g_penDelayMs = (int)penSettings[4].value;
 }
 
 // ---- State function ----
@@ -110,6 +115,7 @@ void state_pen_settings() {
       g_penDownS   = (int)penSettings[1].value;
       g_penUpS     = (int)penSettings[2].value;
       g_overwriteS = (bool)penSettings[3].value;
+      g_penDelayMs = (int)penSettings[4].value;
       ps_active    = false;
       currentState = MAIN;
       return;
@@ -124,6 +130,7 @@ void state_pen_settings() {
       g_penDownS   = (int)penSettings[1].value;
       g_penUpS     = (int)penSettings[2].value;
       g_overwriteS = (bool)penSettings[3].value;
+      g_penDelayMs = (int)penSettings[4].value;
       savePenCfg();
       encoder.setPosition(ps_selected);
       ps_changeSetting = false;

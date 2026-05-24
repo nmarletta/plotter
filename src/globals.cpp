@@ -7,6 +7,7 @@ String selectedFile = "";
 int  g_penDownS   = 100;  // M5 S100 = pen down (grbl-servo fork)
 int  g_penUpS     = 800;  // M4 S800 = pen up (grbl-servo fork)
 bool g_overwriteS = false;
+int  g_penDelayMs = 0;    // G4 dwell after pen commands; 0 = disabled
 // int encoderPosition;
 // int lastEncoderPosition;
 // bool encoderPressed;

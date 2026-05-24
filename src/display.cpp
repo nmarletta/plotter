@@ -54,28 +54,53 @@ void displayLine(int c, bool highlighted, const String& textq) {
   u8g2.print(textq);
 }
 
-void displayJog(char axis, float posX, float posY) {
+void displayControl(int idx, int total, const char* item, const char* feedback) {
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x13_tf);
   u8g2.setFontPosCenter();
   u8g2.setDrawColor(1);
 
-  // Row 0: axis label
+  u8g2.setCursor(2, 11);
+  u8g2.print("Control");
+  char idxBuf[8];
+  snprintf(idxBuf, sizeof(idxBuf), "%d/%d", idx + 1, total);
+  u8g2.setCursor(128 - (int)strlen(idxBuf) * 6 - 2, 11);
+  u8g2.print(idxBuf);
+  u8g2.drawHLine(0, 17, 128);
+
+  centeredText(item, 64, 30);
+
+  if (feedback && feedback[0]) {
+    centeredText(feedback, 64, 47);
+  }
+
+  u8g2.sendBuffer();
+}
+
+void displayJog(char axis, float posMm, const char* feedback) {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);
+  u8g2.setFontPosCenter();
+  u8g2.setDrawColor(1);
+
   char title[8];
   snprintf(title, sizeof(title), "Jog %c", axis);
-  centeredText(title, 64, 8);
+  u8g2.setCursor(2, 11);
+  u8g2.print(title);
+  u8g2.drawHLine(0, 17, 128);
 
-  // Row 1: X and Y position
-  char posBuf[24];
-  snprintf(posBuf, sizeof(posBuf), "X:%.1f  Y:%.1f", (double)posX, (double)posY);
-  centeredText(posBuf, 64, 28);
+  u8g2.setFont(u8g2_font_10x20_tf);
+  u8g2.setFontPosCenter();
+  char posBuf[16];
+  snprintf(posBuf, sizeof(posBuf), "%+.1f mm", (double)posMm);
+  centeredText(posBuf, 64, 37);
 
-  // Row 2: full-width Done button
-  u8g2.setDrawColor(1);
-  u8g2.drawBox(0, 43, 128, 21);
-  u8g2.setDrawColor(0);
-  centeredText("Done", 64, 53);
-  u8g2.setDrawColor(1);
+  if (feedback && feedback[0]) {
+    u8g2.setFont(u8g2_font_6x13_tf);
+    u8g2.setFontPosCenter();
+    centeredText(feedback, 64, 56);
+  }
+
   u8g2.sendBuffer();
 }
 

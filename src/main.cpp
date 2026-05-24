@@ -40,6 +40,9 @@ RotaryButton encoder(PIN_ENCODER_DT, PIN_ENCODER_CLK, PIN_ENCODER_SW);
 #include "state_hardware_test.h"
 
 void setup() {
+  // Read reset cause FIRST — before any init can touch these bits.
+  uint8_t rcause = PM->RCAUSE.reg;
+
   Serial.begin(250000);
   Serial.println("[DBG] MKR BOOTED");
 
@@ -58,6 +61,30 @@ void setup() {
   
   serialMgr.begin(115200);
   loadPenCfg(); // restore pen S values from /pen.cfg on SD
+
+  // ---- Show reset cause on screen for 4 seconds ----
+  // BOD33/BOD12 = power brown-out  → hardware power fix needed
+  // WDT         = watchdog timeout → software blocking too long
+  // SYST        = software reset   → explicit reset somewhere in code
+  // EXT         = external pin     → noise on reset line
+  // POR         = normal power-on  → not a crash
+  const char* cause =
+    (rcause & 0x04) ? "BOD33 power dip!" :   // 3.3V brown-out
+    (rcause & 0x02) ? "BOD12 power dip!" :   // core brown-out
+    (rcause & 0x20) ? "Watchdog reset"   :   // WDT
+    (rcause & 0x40) ? "Software reset"   :   // SYST
+    (rcause & 0x10) ? "External pin"     :   // EXT
+    (rcause & 0x01) ? "Power-on (normal)":   // POR
+                      "Unknown";
+
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x10_tf);
+  u8g2.drawStr(0, 12, "Last reset:");
+  u8g2.drawStr(0, 28, cause);
+  char raw[16]; snprintf(raw, sizeof(raw), "RCAUSE=0x%02X", rcause);
+  u8g2.drawStr(0, 44, raw);
+  u8g2.sendBuffer();
+  delay(4000);
 
   currentState = MAIN;
 }
