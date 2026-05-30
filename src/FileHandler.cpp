@@ -117,4 +117,3 @@ bool FileHandler::checkAccess() {
   }
   return accessToFiles;
 }
-// ...existing code...

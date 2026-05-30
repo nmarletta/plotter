@@ -1,11 +1,13 @@
 #include "state_plot.h"
+#include "sd_line_source.h"
 
 #define PIN_FAN 2
 
 StatePlot::StatePlot(GCodeStreamer &streamer) : _stream(streamer) {}
 
 void StatePlot::enter(const char *filepath) {
-    _filepath = String(filepath);
+    strncpy(_filepath, filepath, sizeof(_filepath) - 1);
+    _filepath[sizeof(_filepath) - 1] = '\0';
     _menuIndex = 0;
     _confirmCancel = false;
     _showingPaused = false;
@@ -41,9 +43,13 @@ void StatePlot::onEncoderRotate(int absIndex) {
 }
 
 void StatePlot::onButtonPress() {
-    // Alarm state: single Unlock button — send $X, reopen file, go to Paused
+    // Alarm state: Unlock ($X) resumes the plot; Reset abandons it
     if (_stream.status() == GCodeStatus::Alarm) {
-        _stream.unlock();
+        if (_menuIndex == 0) {
+            _stream.unlock();
+        } else {
+            _stream.cancel();
+        }
         refreshDisplay();
         return;
     }
@@ -92,7 +98,8 @@ void StatePlot::doCancelConfirmed() {
 extern RotaryButton encoder;
 extern State currentState;
 
-static GCodeStreamer _gcode_streamer(Serial1, A5); // Serial1=GRBL, A5=SD CS pin
+static SdLineSource  _gcode_src;
+static GCodeStreamer _gcode_streamer(Serial1, _gcode_src);
 static StatePlot     _state_plot(_gcode_streamer);
 static bool          _plot_entered = false;
 
@@ -105,8 +112,8 @@ void state_plot() {
   }
 
   if (encoder.turned()) {
-    // Alarm: single button, constrain to 0. Normal: two buttons 0-1.
-    int maxIdx = (_gcode_streamer.status() == GCodeStatus::Alarm) ? 0 : 1;
+    // Both alarm and normal modes have two buttons (0-1).
+    int maxIdx = 1;
     encoder.constrainPosition(0, maxIdx);
     _state_plot.onEncoderRotate(encoder.getPosition());
   }
@@ -131,9 +138,8 @@ void StatePlot::refreshDisplay() {
     bool paused = (_stream.status() == GCodeStatus::Paused);
 
     // Strip directory from filepath for display
-    const char* full = _filepath.c_str();
-    const char* slash = strrchr(full, '/');
-    const char* fname = slash ? slash + 1 : full;
+    const char* slash = strrchr(_filepath, '/');
+    const char* fname = slash ? slash + 1 : _filepath;
 
     bool error     = (_stream.status() == GCodeStatus::Error);
     bool resetting = (_stream.status() == GCodeStatus::Resetting);

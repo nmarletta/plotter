@@ -1,8 +1,12 @@
 #pragma once
 #include <Arduino.h>
-#include <SdFat.h>
+#include "line_source.h"
 
+// SdFat and the global 'sd' are only needed in Arduino builds.
+#ifdef ARDUINO
+#include <SdFat.h>
 extern SdFat sd;
+#endif
 
 enum class GCodeStatus {
     Idle,
@@ -17,62 +21,71 @@ enum class GCodeStatus {
 
 class GCodeStreamer {
 public:
-    GCodeStreamer(HardwareSerial &grblSerial, uint8_t csPin);
-    bool begin(); // initialize SD
-    bool start(const char *filepath);
+    // Inject the GRBL serial stream and the G-code file source.
+    // On Arduino: pass Serial1 (HardwareSerial extends Stream) + SdLineSource.
+    // On PC:      pass PosixStream + StdioLineSource.
+    GCodeStreamer(Stream& grbl, LineSource& src);
+
+    bool begin();
+    bool start(const char* filepath);
     void pause();
     void resume();
-    void cancel();          // soft reset GRBL, clear progress file, return to Canceled
-    void retryAfterError(); // soft reset GRBL, keep progress file, auto-resume when GRBL ready
+    void cancel();
+    void retryAfterError();
     void stop();
-    void tick(); // call frequently from loop()
-    GCodeStatus status() const;
-    uint32_t currentLine() const;
-    float progress() const;   // 0.0–1.0 based on file byte position
-    int8_t alarmCode() const; // non-zero when status == Alarm
-    String currentFilename() const;
-    void unlock();            // send $X, reopen file at current line, go to Paused
+    void tick();
+
+    GCodeStatus  status()          const;
+    uint32_t     currentLine()     const;
+    float        progress();               // non-const: reads file position
+    int8_t       alarmCode()       const;
+    const char*  currentFilename() const;
+    void         unlock();
+
+    // Dry-run: apply all filters and print each line that would be sent to `out`.
+    // Does not write to the GRBL stream. Requires the LineSource to be openable.
+    void trace(const char* filepath, Print& out);
 
 private:
-    HardwareSerial &_grbl;
-    FsFile _file;
-    String _filepath;
-    uint32_t _lineNumber = 0;
-    GCodeStatus _status = GCodeStatus::Idle;
-    uint8_t _sdCSPin;
+    Stream&     _grbl;
+    LineSource& _src;
 
-    // Non-blocking serial line accumulator
-    char    _rxBuf[96];
-    uint8_t _rxLen = 0;
+    char     _filepath[64];
+    uint32_t _lineNumber = 0;
+    GCodeStatus _status  = GCodeStatus::Idle;
 
     // Character-counting: track bytes in GRBL's 128-byte serial RX buffer
-    static const uint8_t kGrblBufSize = 127;
-    static const uint8_t kQueueDepth  = 8;
-    uint8_t _pending[kQueueDepth]; // byte lengths of sent-but-unacked lines
-    uint8_t _qHead = 0, _qTail = 0, _qCount = 0;
-    uint8_t _bufUsed = 0;
+    static const uint8_t  kGrblBufSize    = 127;
+    static const uint8_t  kQueueDepth     = 8;
+    static const uint32_t kSaveIntervalMs = 5000;
+    static const uint32_t kResetTimeoutMs = 3000;
 
-    // Line read from file but GRBL buffer was full — retry next tick
-    String   _pendingLine;
-    bool     _hasPendingLine = false;
-    bool     _sentFinalM5   = false;
-    int8_t   _alarmCode     = 0;
-    uint32_t _fileSize = 0;
+    uint8_t  _pending[kQueueDepth];
+    bool     _qInjected[kQueueDepth];   // true = G4 injected by controller, not a real file line
+    uint8_t  _qHead = 0, _qTail = 0, _qCount = 0;
+    uint8_t  _bufUsed = 0;
 
-    // Periodic progress save (5s)
-    unsigned long _lastSaveMs = 0;
-    static const unsigned long kSaveIntervalMs = 5000;
+    char  _pendingLine[80];
+    bool  _hasPendingLine    = false;
+    bool  _pendingIsInjected = false;   // true when _pendingLine holds an injected G4
+    bool  _sentFinalM5       = false;
+    int8_t _alarmCode     = 0;
 
-    // Resetting timeout (3s)
+    // After all file lines + final M4 are acked, poll GRBL for <Idle|...>
+    // before declaring Completed — ensures the last move actually finishes.
+    bool          _completePending     = false;
+    unsigned long _completePendingMs   = 0;  // when we entered the idle-wait
+    unsigned long _idlePollMs          = 0;  // last '?' sent
+
+    static const uint32_t kIdleWaitTimeoutMs = 8000; // fallback if GRBL never responds
+
+    unsigned long _lastSaveMs   = 0;
     unsigned long _resetStartMs = 0;
-    static const unsigned long kResetTimeoutMs = 3000;
 
-    bool openFileAtLine(const char *path, uint32_t lineToStart);
     void pumpLines();
     void handleGrblResponse();
-    void processGrblLine(const char *line);
+    void processGrblLine(const char* line);
+    void completePlot();               // finalise: close file, set Completed, delete progress
     bool saveProgress();
-    bool loadProgress(uint32_t &lineOut);
-    String progressPathFor(const String &gcodePath) const;
-    String readLineFromFile(FsFile &f);
+    bool loadProgress(uint32_t& lineOut);
 };
