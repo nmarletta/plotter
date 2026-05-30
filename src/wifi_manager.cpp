@@ -5,6 +5,7 @@
 
 #include "wifi_manager.h"
 #include <WiFiNINA.h>
+#include <WiFiMDNSResponder.h>
 #include <SdFat.h>
 #include "serial_manager.h"
 #include "job_control.h"
@@ -45,8 +46,9 @@ static void loadWifiCfg() {
 
 // ---- Server ----
 
-static WiFiServer _server(80);
-static bool       _connected = false;
+static WiFiServer        _server(80);
+static WiFiMDNSResponder _mdns;
+static bool              _connected = false;
 
 bool wifiBegin() {
   loadWifiCfg();
@@ -67,8 +69,10 @@ bool wifiBegin() {
     return false;
   }
   _server.begin();
+  _mdns.begin("plotter");
   _connected = true;
   Serial.print("WIFI: connected, IP="); Serial.println(WiFi.localIP());
+  Serial.println("WIFI: mDNS started — http://plotter.local");
   return true;
 }
 
@@ -510,6 +514,8 @@ gotHeader:
 
 void wifiTick() {
   if (!wifiConnected()) return;
+
+  _mdns.poll();
 
   WiFiClient client = _server.available();
   if (!client) return;

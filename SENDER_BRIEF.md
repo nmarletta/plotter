@@ -77,7 +77,7 @@ Returned by `GET /status` as the `state` field:
 - **No WebSocket** — use polling for status. 1–2 second interval is fine; the plotter is slow.
 - **Single client** — the HTTP server handles one request at a time. Don't fire concurrent requests.
 - **No authentication** — the device is on a trusted local network. No login needed.
-- **IP address only** — no mDNS/hostname. The user must enter the IP manually (shown on the plotter's display under WiFi menu, and in `GET /status`).
+- **Hostname** — the plotter is reachable at `http://plotter.local` via mDNS on any device on the same network. A raw IP input should still be available as fallback (mDNS can be unreliable on some Windows machines).
 - **Upload size** — the server streams uploads directly to SD. Large files (10+ MB) are fine but the upload timeout is 30 seconds, so avoid slow connections.
 - **409 Conflict** — job control endpoints return 409 if the command doesn't apply to the current state (e.g. pause when idle). Handle gracefully.
 - **File names** — returned by `/files` without a path prefix. Pass them to `/start` as-is.

@@ -13,8 +13,8 @@ ssid=YourNetworkName
 password=YourPassword
 ```
 
-The IP address is printed to Serial on boot. Navigate to `http://<ip>/` in a browser.  
-On the device, go to **WiFi** in the main menu to see the IP and reconnect if needed.
+Once connected, the plotter is reachable at **http://plotter.local** on any device on the same network.  
+The raw IP is printed to Serial on boot. On the device, go to **WiFi** in the main menu to see connection status and reconnect if needed.
 
 ---
 
@@ -202,5 +202,4 @@ ok
 |---------|-------|
 | AP / fallback mode | If the network is unavailable WiFi fails at boot; use the WiFi menu to reconnect |
 | Auto-reconnect | A dropped connection is not recovered automatically — use the WiFi menu |
-| mDNS (`plotter.local`) | Must use the raw IP address shown in the WiFi menu |
 | Authentication | No login — anyone on the network has full access |
