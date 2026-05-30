@@ -28,4 +28,7 @@ String wifiIP();
 // Returns true if WiFi is currently connected.
 bool wifiConnected();
 
+// Returns the SSID read from /.config.cfg, or "" if not configured.
+const char* wifiSSID();
+
 #endif // WIFI_MANAGER_H

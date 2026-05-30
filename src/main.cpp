@@ -32,6 +32,7 @@ RotaryButton encoder(PIN_ENCODER_DT, PIN_ENCODER_CLK, PIN_ENCODER_SW);
 
 #include "globals.h"
 #include "wifi_manager.h"
+#include "state_wifi.h"
 #include "state_main.h"
 #include "state_control.h"
 #include "state_settings.h"
@@ -111,6 +112,9 @@ void loop() {
       break;
     case HWTEST:
       state_hardware_test();
+      break;
+    case WIFI:
+      state_wifi();
       break;
   }
 }

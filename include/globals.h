@@ -11,7 +11,8 @@ enum State {
   PEN_SETTINGS,
   FILES,
   PLOT,
-  HWTEST
+  HWTEST,
+  WIFI
 };
 
 struct Setting {

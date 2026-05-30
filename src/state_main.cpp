@@ -2,8 +2,8 @@
 
 bool main_active = false;
 
-String main_menuItems[] = { "Files", "Control", "GRBL Settings", "Pen Settings", "Diagnostics" };
-int main_menuSize = 5;
+String main_menuItems[] = { "Files", "Control", "GRBL Settings", "Pen Settings", "Diagnostics", "WiFi" };
+int main_menuSize = 6;
 
 void state_main() {
   if (!main_active) {
@@ -48,6 +48,11 @@ void main_menuSelect(int i) {
     case 4:
       // Diagnostics
       currentState = HWTEST;
+      break;
+
+    case 5:
+      // WiFi status
+      currentState = WIFI;
       break;
   }
 }

@@ -147,3 +147,21 @@ void StatePlot::refreshDisplay() {
     displayPlot(fname, _menuIndex, progress, paused, _confirmCancel, error, resetting, alarm);
 }
 
+// ---- Remote job control (called from wifi_manager) ----
+
+GCodeStatus plotStatus()      { return _gcode_streamer.status(); }
+float        plotProgress()    { return _gcode_streamer.progress(); }
+const char*  plotFilename()    { return _gcode_streamer.currentFilename(); }
+uint32_t     plotCurrentLine() { return _gcode_streamer.currentLine(); }
+void         plotPause()       { _gcode_streamer.pause(); }
+void         plotResume()      { _gcode_streamer.resume(); }
+void         plotCancel()      { _gcode_streamer.cancel(); }
+
+bool plotStartRemote(const char* filepath) {
+    GCodeStatus s = _gcode_streamer.status();
+    if (s == GCodeStatus::Running || s == GCodeStatus::Paused) return false;
+    selectedFile   = filepath;
+    _plot_entered  = false;
+    currentState   = PLOT;
+    return true;
+}

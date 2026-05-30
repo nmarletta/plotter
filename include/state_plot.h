@@ -34,3 +34,6 @@ private:
 
 // Free function called by main.cpp state machine loop.
 void state_plot();
+
+// Remote job control — see job_control.h for the full interface.
+#include "job_control.h"

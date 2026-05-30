@@ -7,6 +7,7 @@
 #include <WiFiNINA.h>
 #include <SdFat.h>
 #include "serial_manager.h"
+#include "job_control.h"
 
 extern SdFat sd;
 extern SerialManager serialMgr;
@@ -72,6 +73,7 @@ bool wifiBegin() {
 }
 
 bool wifiConnected() { return _connected && WiFi.status() == WL_CONNECTED; }
+const char* wifiSSID() { return _ssid; }
 
 String wifiIP() {
   if (!wifiConnected()) return "";
@@ -93,6 +95,11 @@ static void send200(WiFiClient &c, const char *ct) {
 
 static void send400(WiFiClient &c) {
   c.print(F("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\nBad Request"));
+}
+
+static void send409(WiFiClient &c, const char* msg) {
+  c.print(F("HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n"));
+  c.print(msg);
 }
 
 static void send500(WiFiClient &c) {
@@ -369,6 +376,67 @@ static void handleUpload(WiFiClient &c, WiFiClient &raw, int contentLength, cons
   c.print(filename);
 }
 
+// ---- GET /status — machine state as JSON ----
+
+static void handleStatus(WiFiClient &c) {
+  send200(c, "application/json");
+  GCodeStatus s = plotStatus();
+  const char* stateStr =
+    s == GCodeStatus::Running   ? "running"   :
+    s == GCodeStatus::Paused    ? "paused"    :
+    s == GCodeStatus::Completed ? "completed" :
+    s == GCodeStatus::Error     ? "error"     :
+    s == GCodeStatus::Canceled  ? "canceled"  :
+    s == GCodeStatus::Alarm     ? "alarm"     :
+    s == GCodeStatus::Resetting ? "resetting" :
+                                  "idle";
+  char buf[300];
+  snprintf(buf, sizeof(buf),
+    "{\"state\":\"%s\",\"file\":\"%s\",\"progress\":%.2f,\"line\":%lu,\"ip\":\"%s\",\"ssid\":\"%s\"}",
+    stateStr,
+    plotFilename() ? plotFilename() : "",
+    plotProgress(),
+    (unsigned long)plotCurrentLine(),
+    wifiIP().c_str(),
+    _ssid
+  );
+  c.print(buf);
+}
+
+// ---- POST /start — begin streaming a file ----
+
+static void handleStart(WiFiClient &c, const String &body) {
+  String fname = body;
+  fname.trim();
+  if (fname.length() == 0) { send400(c); return; }
+  if (fname[0] != '/') fname = "/" + fname;
+  if (!plotStartRemote(fname.c_str())) {
+    send409(c, "Already plotting");
+    return;
+  }
+  send200(c, "text/plain");
+  c.print("ok");
+}
+
+// ---- POST /pause, /resume, /stop ----
+
+static void handlePause(WiFiClient &c) {
+  if (plotStatus() != GCodeStatus::Running) { send409(c, "Not running"); return; }
+  plotPause();
+  send200(c, "text/plain"); c.print("ok");
+}
+
+static void handleResume(WiFiClient &c) {
+  if (plotStatus() != GCodeStatus::Paused) { send409(c, "Not paused"); return; }
+  plotResume();
+  send200(c, "text/plain"); c.print("ok");
+}
+
+static void handleStop(WiFiClient &c) {
+  plotCancel();
+  send200(c, "text/plain"); c.print("ok");
+}
+
 // ---- Request dispatcher ----
 
 struct HttpRequest {
@@ -456,12 +524,17 @@ void wifiTick() {
       handleRoot(client);
     } else if (strcmp(req.path, "/files") == 0) {
       handleFiles(client);
+    } else if (strcmp(req.path, "/status") == 0) {
+      handleStatus(client);
     } else {
       client.print(F("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nNot Found"));
     }
   } else if (strcmp(req.method, "POST") == 0) {
-    if (strcmp(req.path, "/grbl") == 0) {
-      // Read body
+    if (strcmp(req.path, "/upload") == 0) {
+      // Upload streams directly — must NOT pre-buffer the body
+      handleUpload(client, client, req.contentLength, String(req.boundary));
+    } else {
+      // All other POST endpoints use a small text body
       String body = "";
       if (req.contentLength > 0) {
         unsigned long t = millis();
@@ -469,11 +542,12 @@ void wifiTick() {
           while (client.available()) body += (char)client.read();
         }
       }
-      handleGrbl(client, body);
-    } else if (strcmp(req.path, "/upload") == 0) {
-      handleUpload(client, client, req.contentLength, String(req.boundary));
-    } else {
-      client.print(F("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nNot Found"));
+      if      (strcmp(req.path, "/grbl")   == 0) handleGrbl(client, body);
+      else if (strcmp(req.path, "/start")  == 0) handleStart(client, body);
+      else if (strcmp(req.path, "/pause")  == 0) handlePause(client);
+      else if (strcmp(req.path, "/resume") == 0) handleResume(client);
+      else if (strcmp(req.path, "/stop")   == 0) handleStop(client);
+      else client.print(F("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nNot Found"));
     }
   } else {
     client.print(F("HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n"));
