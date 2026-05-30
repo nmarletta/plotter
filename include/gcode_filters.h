@@ -63,7 +63,8 @@ inline void applyPenOverwrite(char* line, uint8_t maxLen) {
     for (int i = 0; up[i]; i++) up[i] = (char)toupper((unsigned char)up[i]);
     if (strchr(up, 'X') || strchr(up, 'Y')) return;
     if      (strstr(up, "M3")) snprintf(line, maxLen, "M5 S%d", g_penDownS);
-    else if (strstr(up, "M5")) snprintf(line, maxLen, "M4 S%d", g_penUpS);
+    else if (strstr(up, "M4")) snprintf(line, maxLen, "M4 S%d", g_penUpS);
+    else if (strstr(up, "M5")) snprintf(line, maxLen, "M5 S%d", g_penDownS);
 }
 
 // Returns true if the line is a standalone pen command (M3/M4/M5 with no XY motion).
