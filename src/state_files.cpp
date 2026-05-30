@@ -1,4 +1,5 @@
 #include "state_files.h"
+#include <SdFat.h>
 
 bool files_active = false;
 
@@ -7,6 +8,11 @@ String* files_menuItems = nullptr;
 void state_files() {
   static int listSize;
   if (!files_active) {
+    // Re-initialise the SD driver every time we enter the file list so that
+    // a card that was removed and reinserted while the plotter is on is
+    // detected correctly.  SdSpiConfig with SHARED_SPI is safe here because
+    // the display uses the same SPI bus.
+    sd.begin(SdSpiConfig(A5, SHARED_SPI, SD_SCK_HZ(400000)));
     delete[] files_menuItems;
     encoder.setPosition(0);
     fileHandler.loadFileNames();

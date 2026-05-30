@@ -121,8 +121,8 @@ static void pollGrbl() {
       if (_needsPosRefresh) {
         float mx, my;
         if (parseGrblPos(line, mx, my)) {
-          _dispX = mx - _jogOriginX;
-          _dispY = my - _jogOriginY;
+          _dispX = mx;
+          _dispY = my;
           _jogError[0] = '\0';
           _needsPosRefresh = false;
         }
@@ -300,9 +300,10 @@ void control_menuSelect(int i) {
     _jogError[0] = '\0'; _needsPosRefresh = false;
     _lastJogMs = millis(); _lastDisplayMs = 0;
     queryGrblPos(_jogOriginX, _jogOriginY);
+    _dispX = _jogOriginX; _dispY = _jogOriginY;
     encoder.setPosition(0);
     _jogging = true;
-    displayJog(_jogAxis == 0 ? 'X' : 'Y', 0.0f, nullptr);
+    displayJog(_jogAxis == 0 ? 'X' : 'Y', (_jogAxis == 0 ? _dispX : _dispY), nullptr);
 
   } else if (i == 5) {
     snprintf(_ctrlFeedback, sizeof(_ctrlFeedback), "Homing...");

@@ -23,6 +23,8 @@ inline const char* grblErrorStr(int code) {
     case 17: return "Jog step error";
     case 20: return "Unknown G-code";
     case 22: return "No feed rate set";
+    case 25: return "Word repeated";
+    case 27: return "No axis words";
     default: {
       static char buf[14];
       snprintf(buf, sizeof(buf), "error:%d", code);

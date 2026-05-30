@@ -27,6 +27,7 @@ bool GCodeStreamer::start(const char* filepath) {
     _hasPendingLine    = false;
     _pendingIsInjected = false;
     _sentFinalM5       = false;
+    _completePending   = false;
 
     serialMgr.sendLine("$X", 500);
 
@@ -48,6 +49,11 @@ bool GCodeStreamer::start(const char* filepath) {
         while (_src.available()) {
             _src.readLine(pLine, sizeof(pLine));
             if (!filterLine(pLine)) continue;
+            // Skip system commands ($H, $X, etc.) — not setup lines.
+            // Sending $H here would start a 30-second homing cycle but only
+            // wait 500 ms for the ok.  The late ok would then be mis-counted
+            // as an ack for the first streaming command, corrupting the queue.
+            if (pLine[0] == '$') continue;
             applyPenOverwrite(pLine, sizeof(pLine));
             strncpy(up, pLine, sizeof(up) - 1); up[sizeof(up) - 1] = '\0';
             for (int i = 0; up[i]; i++) up[i] = (char)toupper((unsigned char)up[i]);
@@ -149,6 +155,7 @@ void GCodeStreamer::tick() {
     handleGrblResponse();
 
     if (_status == GCodeStatus::Paused || _status == GCodeStatus::Canceled || _status == GCodeStatus::Alarm) return;
+    if (_status == GCodeStatus::Completed) return;  // completePlot() may have been called above
 
     if (_status == GCodeStatus::Resetting) {
         if (millis() - _resetStartMs > kResetTimeoutMs) {
@@ -158,11 +165,29 @@ void GCodeStreamer::tick() {
         return;
     }
 
-    if (millis() - _lastSaveMs > kSaveIntervalMs) {
-        saveProgress();
-        _lastSaveMs = millis();
+    // Don't save progress once we're waiting for idle — the job is effectively done.
+    if (!_completePending) {
+        if (millis() - _lastSaveMs > kSaveIntervalMs) {
+            saveProgress();
+            _lastSaveMs = millis();
+        }
     }
     pumpLines();
+
+    // Idle-wait: poll '?' every 250 ms; complete when GRBL reports <Idle|…>.
+    // Falls back after kIdleWaitTimeoutMs in case the response is dropped (SPI/UART).
+    if (_completePending) {
+        unsigned long now = millis();
+        if (now - _idlePollMs >= 250) {
+            _grbl.print('?');
+            _idlePollMs = now;
+        }
+        if (now - _completePendingMs >= kIdleWaitTimeoutMs) {
+            Log::err("STR: idle wait timeout, completing anyway");
+            _completePending = false;
+            completePlot();
+        }
+    }
 }
 
 void GCodeStreamer::pumpLines() {
@@ -178,23 +203,32 @@ void GCodeStreamer::pumpLines() {
             injectMissingS(line, sizeof(line));
             applyPenOverwrite(line, sizeof(line));
         } else if (!_sentFinalM5) {
+            // Sanity-check: if the file position is way less than the file size,
+            // available() returned false early — likely an SD read error.
+            // Log it so the serial monitor shows what happened.
+            {
+                uint32_t fPos = _src.filePos();
+                uint32_t fSz  = _src.fileSize();
+                if (fSz > 512 && fPos < fSz / 8) {
+                    char warn[72];
+                    snprintf(warn, sizeof(warn),
+                             "STR: EOF at %lu/%lu bytes — SD error or short read?",
+                             (unsigned long)fPos, (unsigned long)fSz);
+                    Log::err(warn);
+                }
+            }
             if (g_overwriteS) snprintf(line, sizeof(line), "M4 S%d", g_penUpS);
             else              strncpy(line, "M4", sizeof(line));
             _sentFinalM5 = true;
         } else {
-            if (_qCount == 0) {
-                _src.close();
-                _status = GCodeStatus::Completed;
-                char msg[80];
-                const char* base = strrchr(_filepath, '/');
-                snprintf(msg, sizeof(msg), "complete: %lu lines in %s",
-                         (unsigned long)_lineNumber,
-                         base ? base + 1 : _filepath);
-                Log::str(msg);
-#ifdef ARDUINO
-                char p[80]; progressPathFor(_filepath, p, sizeof(p));
-                if (sd.exists(p)) sd.remove(p);
-#endif
+            // All file lines + final pen-up acked.
+            // Don't complete yet — GRBL may still be executing the last move.
+            // Enter the idle-wait state and poll '?' until GRBL reports <Idle|…>.
+            if (_qCount == 0 && !_completePending) {
+                _completePending   = true;
+                _completePendingMs = millis();
+                _idlePollMs        = millis() - 300; // trigger first poll immediately
+                Log::nav("STR: all acked, polling for GRBL idle");
             }
             return;
         }
@@ -210,7 +244,8 @@ void GCodeStreamer::pumpLines() {
         }
 
         Log::send(line);
-        _grbl.println(line);
+        _grbl.print(line);
+        _grbl.print('\n');   // '\n' only — println() adds '\r\n' (2 bytes) but sendLen only counts 1
         _qInjected[_qTail] = _pendingIsInjected;
         _pendingIsInjected = false;
         _pending[_qTail]   = sendLen;
@@ -237,6 +272,16 @@ void GCodeStreamer::processGrblLine(const char *line) {
         if (strstr(line, "Grbl") != nullptr) start(_filepath);
         return;
     }
+
+    // Idle-wait: watching for GRBL to report <Idle|…> after all commands are acked.
+    if (_completePending && line[0] == '<') {
+        if (strstr(line, "Idle") != nullptr) {
+            _completePending = false;
+            completePlot();
+        }
+        return;  // status reports don't match ok/alarm/error — skip further checks
+    }
+
     if (strcmp(line, "ok") == 0) {
         if (_qCount > 0) {
             _bufUsed -= _pending[_qHead];
@@ -247,6 +292,7 @@ void GCodeStreamer::processGrblLine(const char *line) {
     } else if (strncmp(line, "ALARM:", 6) == 0) {
         _alarmCode = (int8_t)atoi(line + 6);
         _status = GCodeStatus::Alarm;
+        _completePending = false;
         _qHead = 0; _qTail = 0; _qCount = 0; _bufUsed = 0;
         _hasPendingLine    = false;
         _pendingIsInjected = false;
@@ -260,8 +306,24 @@ void GCodeStreamer::processGrblLine(const char *line) {
         char msg[64];
         snprintf(msg, sizeof(msg), "error at line %lu: %s", (unsigned long)_lineNumber, line);
         Log::err(msg);
+        _completePending = false;
         _status = GCodeStatus::Error;
     }
+}
+
+void GCodeStreamer::completePlot() {
+    _src.close();
+    _status = GCodeStatus::Completed;
+    char msg[80];
+    const char* base = strrchr(_filepath, '/');
+    snprintf(msg, sizeof(msg), "complete: %lu lines in %s",
+             (unsigned long)_lineNumber,
+             base ? base + 1 : _filepath);
+    Log::str(msg);
+#ifdef ARDUINO
+    char p[80]; progressPathFor(_filepath, p, sizeof(p));
+    if (sd.exists(p)) sd.remove(p);
+#endif
 }
 
 bool GCodeStreamer::saveProgress() {

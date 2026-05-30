@@ -71,12 +71,21 @@ private:
     bool  _sentFinalM5       = false;
     int8_t _alarmCode     = 0;
 
+    // After all file lines + final M4 are acked, poll GRBL for <Idle|...>
+    // before declaring Completed — ensures the last move actually finishes.
+    bool          _completePending     = false;
+    unsigned long _completePendingMs   = 0;  // when we entered the idle-wait
+    unsigned long _idlePollMs          = 0;  // last '?' sent
+
+    static const uint32_t kIdleWaitTimeoutMs = 8000; // fallback if GRBL never responds
+
     unsigned long _lastSaveMs   = 0;
     unsigned long _resetStartMs = 0;
 
     void pumpLines();
     void handleGrblResponse();
     void processGrblLine(const char* line);
+    void completePlot();               // finalise: close file, set Completed, delete progress
     bool saveProgress();
     bool loadProgress(uint32_t& lineOut);
 };
