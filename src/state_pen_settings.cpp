@@ -1,6 +1,6 @@
 // state_pen_settings.cpp
 // Controller-local pen settings: Pen Down S, Pen Up S, Overwrite S.
-// Saved to /pen.cfg on SD; loaded on boot via loadPenCfg().
+// Saved to /.config.cfg on SD; loaded on boot via loadPenCfg().
 //
 // When Overwrite S = 1, the gcode streamer replaces M3 S values with
 // g_penDownS, and M5 with M3 S{g_penUpS}, regardless of what the file says.
@@ -13,7 +13,7 @@ extern SdFat sd;
 extern U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2;
 extern RotaryButton encoder;
 
-#define PEN_CFG_PATH "/pen.cfg"
+#define PEN_CFG_PATH "/.config.cfg"
 
 static Setting penSettings[] = {
   { " ",  "<- Back",     "",  -1,    0,    0,  0,   1 },

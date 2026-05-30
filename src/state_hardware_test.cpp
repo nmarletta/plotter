@@ -10,7 +10,7 @@
 #include <SdFat.h>
 extern SdFat sd;
 
-#define DBG_LOG_PATH "/hwtest.log"
+#define DBG_LOG_PATH "/.log.log"
 static FsFile dbgLog;
 static void dbg_log(const char* msg) {
   if (!dbgLog) return;

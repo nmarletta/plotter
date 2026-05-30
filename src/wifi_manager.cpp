@@ -1,6 +1,6 @@
 // wifi_manager.cpp
 // WiFi station mode + background HTTP server for the MKR WiFi 1010.
-// Credentials read from /wifi.cfg on SD (ssid=xxx / password=xxx).
+// Credentials read from /.config.cfg on SD (ssid=xxx / password=xxx).
 // HTTP server runs on port 80. All HTML is served inline — no SPIFFS needed.
 
 #include "wifi_manager.h"
@@ -18,7 +18,7 @@ static char _password[64] = "";
 
 static void loadWifiCfg() {
   FsFile f;
-  if (!f.open("/wifi.cfg", O_READ)) return;
+  if (!f.open("/.config.cfg", O_READ)) return;
   char line[80];
   uint8_t len = 0;
   while (f.available()) {
@@ -50,7 +50,7 @@ static bool       _connected = false;
 bool wifiBegin() {
   loadWifiCfg();
   if (_ssid[0] == '\0') {
-    Serial.println("WIFI: no /wifi.cfg found");
+    Serial.println("WIFI: no ssid in /.config.cfg");
     return false;
   }
   Serial.print("WIFI: connecting to "); Serial.println(_ssid);

@@ -1,6 +1,6 @@
 // state_pen_settings.h
 // Local controller pen settings: pen down S value, pen up S value, overwrite mode.
-// Values are persisted to /pen.cfg on SD card.
+// Values are persisted to /.config.cfg on SD card.
 
 #ifndef STATE_PEN_SETTINGS_H
 #define STATE_PEN_SETTINGS_H

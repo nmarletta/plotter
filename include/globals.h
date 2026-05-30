@@ -29,7 +29,7 @@ extern State currentState;
 extern SerialManager serialMgr;
 extern String selectedFile; // Set by state_files before entering PLOT state
 
-// Pen configuration — set in Pen Settings, persisted to /pen.cfg on SD
+// Pen configuration — set in Pen Settings, persisted to /.config.cfg on SD
 extern int  g_penDownS;    // S value sent for pen down
 extern int  g_penUpS;      // S value sent for pen up
 extern bool g_overwriteS;  // if true, M3/M5 S values in gcode are replaced

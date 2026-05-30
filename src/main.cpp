@@ -58,7 +58,8 @@ void setup() {
   pinMode(PIN_FAN, OUTPUT);
   
   serialMgr.begin(115200);
-  loadPenCfg(); // restore pen S values from /pen.cfg on SD
+  loadPenCfg(); // restore pen S values from /.config.cfg on SD
+  wifiBegin();  // connect using ssid/password from /.config.cfg (no-op if missing)
 
   // ---- Show reset cause on screen for 4 seconds ----
   // BOD33/BOD12 = power brown-out  → hardware power fix needed

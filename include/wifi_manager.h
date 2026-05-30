@@ -1,5 +1,5 @@
 // wifi_manager.h
-// Handles WiFi station-mode connection (credentials from /wifi.cfg on SD)
+// Handles WiFi station-mode connection (credentials from /.config.cfg on SD)
 // and a background HTTP server with the following endpoints:
 //
 //   GET  /           — HTML upload UI + GRBL terminal
@@ -15,7 +15,7 @@
 
 #include <Arduino.h>
 
-// Attempt to connect using /wifi.cfg. Returns true if connected.
+// Attempt to connect using /.config.cfg. Returns true if connected.
 // Reads ssid= and password= lines from the file.
 bool wifiBegin();
 
