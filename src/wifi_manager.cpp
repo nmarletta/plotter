@@ -387,6 +387,34 @@ static void handleUpload(WiFiClient &c, WiFiClient &raw, int contentLength, cons
 
 // ---- GET /status — machine state as JSON ----
 
+// Sends GRBL real-time query '?' and parses MPos from the response.
+// Safe to call mid-stream; '?' bypasses the command buffer.
+static void queryMPos(float &x, float &y) {
+  x = 0.0f; y = 0.0f;
+  while (Serial1.available()) Serial1.read(); // flush stale bytes
+  Serial1.write('?');
+  char buf[80];
+  uint8_t len = 0;
+  unsigned long deadline = millis() + 200;
+  while (millis() < deadline) {
+    while (Serial1.available() && len < sizeof(buf) - 1) {
+      char ch = (char)Serial1.read();
+      if (ch == '>') { buf[len++] = ch; goto done; }
+      if (ch != '\r') buf[len++] = ch;
+    }
+  }
+done:
+  buf[len] = '\0';
+  // Response: <Run|MPos:12.345,67.890,0.000|FS:500,0>
+  const char *mp = strstr(buf, "MPos:");
+  if (mp) {
+    mp += 5;
+    x = atof(mp);
+    const char *comma = strchr(mp, ',');
+    if (comma) y = atof(comma + 1);
+  }
+}
+
 static void handleStatus(WiFiClient &c) {
   send200(c, "application/json");
   GCodeStatus s = plotStatus();
@@ -399,13 +427,17 @@ static void handleStatus(WiFiClient &c) {
     s == GCodeStatus::Alarm     ? "alarm"     :
     s == GCodeStatus::Resetting ? "resetting" :
                                   "idle";
-  char buf[300];
+  float mx = 0.0f, my = 0.0f;
+  queryMPos(mx, my);
+  char buf[320];
   snprintf(buf, sizeof(buf),
-    "{\"state\":\"%s\",\"file\":\"%s\",\"progress\":%.2f,\"line\":%lu,\"ip\":\"%s\",\"ssid\":\"%s\"}",
+    "{\"state\":\"%s\",\"file\":\"%s\",\"progress\":%.2f,\"line\":%lu,"
+    "\"x\":%.3f,\"y\":%.3f,\"ip\":\"%s\",\"ssid\":\"%s\"}",
     stateStr,
     plotFilename() ? plotFilename() : "",
     plotProgress(),
     (unsigned long)plotCurrentLine(),
+    mx, my,
     wifiIP().c_str(),
     _ssid
   );
