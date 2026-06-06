@@ -429,15 +429,17 @@ static void handleStatus(WiFiClient &c) {
                                   "idle";
   float mx = 0.0f, my = 0.0f;
   queryMPos(mx, my);
-  char buf[320];
+  const char* reason = plotPauseReason();
+  char buf[360];
   snprintf(buf, sizeof(buf),
     "{\"state\":\"%s\",\"file\":\"%s\",\"progress\":%.2f,\"line\":%lu,"
-    "\"x\":%.3f,\"y\":%.3f,\"ip\":\"%s\",\"ssid\":\"%s\"}",
+    "\"x\":%.3f,\"y\":%.3f,\"pauseReason\":\"%s\",\"ip\":\"%s\",\"ssid\":\"%s\"}",
     stateStr,
     plotFilename() ? plotFilename() : "",
     plotProgress(),
     (unsigned long)plotCurrentLine(),
     mx, my,
+    reason ? reason : "",
     wifiIP().c_str(),
     _ssid
   );

@@ -77,6 +77,21 @@ inline bool isPenCommand(const char* line) {
     return strstr(up, "M3") || strstr(up, "M4") || strstr(up, "M5");
 }
 
+// If line is a ;PAUSE comment, copy the label into `out` (max outLen bytes) and return true.
+// Recognises ";PAUSE", ";pause", "; PAUSE", "; pause" with optional leading whitespace.
+inline bool parsePauseLine(const char* line, char* out, uint8_t outLen) {
+    while (*line == ' ' || *line == '\t') line++;
+    if (*line != ';') return false;
+    line++;
+    while (*line == ' ' || *line == '\t') line++;
+    if (strncasecmp(line, "PAUSE", 5) != 0) return false;
+    line += 5;
+    while (*line == ' ' || *line == '\t') line++;
+    strncpy(out, *line ? line : "Pen change", outLen - 1);
+    out[outLen - 1] = '\0';
+    return true;
+}
+
 // Build the progress file path for a given gcode filepath.
 inline void progressPathFor(const char* gcodePath, char* out, uint8_t maxLen) {
     const char* slash = strrchr(gcodePath, '/');

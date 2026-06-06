@@ -144,15 +144,16 @@ void StatePlot::refreshDisplay() {
     bool error     = (_stream.status() == GCodeStatus::Error);
     bool resetting = (_stream.status() == GCodeStatus::Resetting);
     int8_t alarm   = _stream.alarmCode();
-    displayPlot(fname, _menuIndex, progress, paused, _confirmCancel, error, resetting, alarm);
+    displayPlot(fname, _menuIndex, progress, paused, _confirmCancel, error, resetting, alarm, _stream.pauseReason());
 }
 
 // ---- Remote job control (called from wifi_manager) ----
 
-GCodeStatus plotStatus()      { return _gcode_streamer.status(); }
-float        plotProgress()    { return _gcode_streamer.progress(); }
-const char*  plotFilename()    { return _gcode_streamer.currentFilename(); }
-uint32_t     plotCurrentLine() { return _gcode_streamer.currentLine(); }
+GCodeStatus plotStatus()        { return _gcode_streamer.status(); }
+float        plotProgress()      { return _gcode_streamer.progress(); }
+const char*  plotFilename()      { return _gcode_streamer.currentFilename(); }
+uint32_t     plotCurrentLine()   { return _gcode_streamer.currentLine(); }
+const char*  plotPauseReason()   { return _gcode_streamer.pauseReason(); }
 void         plotPause()       { _gcode_streamer.pause(); }
 void         plotResume()      { _gcode_streamer.resume(); }
 void         plotCancel()      { _gcode_streamer.cancel(); }

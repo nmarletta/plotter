@@ -182,7 +182,7 @@ void displayScrollBar(int pos, int listSize) {
   u8g2.drawBox(125, y, 3, h);
 }
 
-void displayPlot(const char* filename, int selected, float progress, bool paused, bool confirmCancel, bool error, bool resetting, int8_t alarmCode) {
+void displayPlot(const char* filename, int selected, float progress, bool paused, bool confirmCancel, bool error, bool resetting, int8_t alarmCode, const char* pauseReason) {
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x13_tf);
   u8g2.setDrawColor(1);
@@ -243,13 +243,16 @@ void displayPlot(const char* filename, int selected, float progress, bool paused
     return;
   }
 
-  // Row 1: progress bar, or status message when error/resetting
+  // Row 1: progress bar, or status/reason message
   if (error) {
     u8g2.setFontPosCenter();
     centeredText("! GRBL Error", 64, 24);
   } else if (resetting) {
     u8g2.setFontPosCenter();
     centeredText("Resetting...", 64, 24);
+  } else if (paused && pauseReason && pauseReason[0] != '\0') {
+    u8g2.setFontPosCenter();
+    centeredText(pauseReason, 64, 24);
   } else {
     u8g2.drawFrame(2, 18, 124, 11);
     int barW = (int)(progress * 120.0f);

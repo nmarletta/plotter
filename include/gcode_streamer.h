@@ -40,6 +40,7 @@ public:
     float        progress();               // non-const: reads file position
     int8_t       alarmCode()       const;
     const char*  currentFilename() const;
+    const char*  pauseReason()     const;
     void         unlock();
 
     // Dry-run: apply all filters and print each line that would be sent to `out`.
@@ -51,6 +52,7 @@ private:
     LineSource& _src;
 
     char     _filepath[64];
+    char     _pauseReason[32];
     uint32_t _lineNumber = 0;
     GCodeStatus _status  = GCodeStatus::Idle;
 

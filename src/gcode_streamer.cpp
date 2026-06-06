@@ -28,6 +28,7 @@ bool GCodeStreamer::start(const char* filepath) {
     _pendingIsInjected = false;
     _sentFinalM5       = false;
     _completePending   = false;
+    _pauseReason[0]    = '\0';
 
     serialMgr.sendLine("$X", 500);
 
@@ -87,6 +88,7 @@ void GCodeStreamer::resume() {
     if (_status == GCodeStatus::Paused) {
         _grbl.write('~');
         _status = GCodeStatus::Running;
+        _pauseReason[0] = '\0';
         char msg[40]; snprintf(msg, sizeof(msg), "resumed at line %lu", (unsigned long)_lineNumber);
         Log::str(msg);
         pumpLines();
@@ -130,6 +132,8 @@ GCodeStatus  GCodeStreamer::status()          const { return _status; }
 uint32_t     GCodeStreamer::currentLine()     const { return _lineNumber; }
 int8_t       GCodeStreamer::alarmCode()       const { return _alarmCode; }
 const char*  GCodeStreamer::currentFilename() const { return _filepath; }
+
+const char* GCodeStreamer::pauseReason() const { return _pauseReason; }
 
 float GCodeStreamer::progress() {
     if (_status == GCodeStatus::Completed) return 1.0f;
@@ -199,6 +203,19 @@ void GCodeStreamer::pumpLines() {
             _hasPendingLine = false;
         } else if (_src.isOpen() && _src.available()) {
             _src.readLine(line, sizeof(line));
+            if (parsePauseLine(line, _pauseReason, sizeof(_pauseReason))) {
+                // Inject a pen-up before pausing so the pen lifts immediately.
+                if (g_overwriteS) snprintf(_pendingLine, sizeof(_pendingLine), "M4 S%d", g_penUpS);
+                else              strncpy(_pendingLine, "M4", sizeof(_pendingLine));
+                _hasPendingLine    = true;
+                _pendingIsInjected = true;
+                _lineNumber++;
+                _status = GCodeStatus::Paused;
+                char msg[64];
+                snprintf(msg, sizeof(msg), "STR: paused for pen change: %s", _pauseReason);
+                Log::nav(msg);
+                return;
+            }
             if (!filterLine(line)) { _lineNumber++; continue; }
             injectMissingS(line, sizeof(line));
             applyPenOverwrite(line, sizeof(line));

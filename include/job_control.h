@@ -7,6 +7,7 @@ GCodeStatus plotStatus();
 float        plotProgress();
 const char*  plotFilename();
 uint32_t     plotCurrentLine();
+const char*  plotPauseReason();
 void         plotPause();
 void         plotResume();
 void         plotCancel();
