@@ -10,6 +10,8 @@
 #include <SdFat.h>
 #include "serial_manager.h"
 #include "job_control.h"
+#include "state_pen_settings.h"
+#include "globals.h"
 
 extern SdFat sd;
 extern SerialManager serialMgr;
@@ -425,6 +427,44 @@ static void handleStart(WiFiClient &c, const String &body) {
   c.print("ok");
 }
 
+// ---- GET /pen — return pen settings as JSON ----
+
+static void handleGetPen(WiFiClient &c) {
+  send200(c, "application/json");
+  char buf[100];
+  snprintf(buf, sizeof(buf),
+    "{\"penDown\":%d,\"penUp\":%d,\"overwrite\":%d,\"penDelay\":%d}",
+    g_penDownS, g_penUpS, g_overwriteS ? 1 : 0, g_penDelayMs);
+  c.print(buf);
+}
+
+// ---- POST /pen — update pen settings from JSON body ----
+// Accepts any subset of: {"penDown":N,"penUp":N,"overwrite":0|1,"penDelay":N}
+
+static void handlePostPen(WiFiClient &c, const String &body) {
+  auto parseInt = [&](const char *key, int &out) {
+    String k = "\""; k += key; k += "\":";
+    int idx = body.indexOf(k);
+    if (idx < 0) return;
+    int start = idx + k.length();
+    while (start < (int)body.length() && body[start] == ' ') start++;
+    out = body.substring(start).toInt();
+  };
+  parseInt("penDown",  g_penDownS);
+  parseInt("penUp",    g_penUpS);
+  int ov = g_overwriteS ? 1 : 0;
+  parseInt("overwrite", ov);
+  g_overwriteS = (bool)ov;
+  parseInt("penDelay", g_penDelayMs);
+  savePenCfg();
+  send200(c, "application/json");
+  char buf[100];
+  snprintf(buf, sizeof(buf),
+    "{\"penDown\":%d,\"penUp\":%d,\"overwrite\":%d,\"penDelay\":%d}",
+    g_penDownS, g_penUpS, g_overwriteS ? 1 : 0, g_penDelayMs);
+  c.print(buf);
+}
+
 // ---- POST /pause, /resume, /stop ----
 
 static void handlePause(WiFiClient &c) {
@@ -549,6 +589,8 @@ void wifiTick() {
       handleFiles(client);
     } else if (strcmp(req.path, "/status") == 0) {
       handleStatus(client);
+    } else if (strcmp(req.path, "/pen") == 0) {
+      handleGetPen(client);
     } else {
       client.print(F("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nNot Found"));
     }
@@ -570,6 +612,7 @@ void wifiTick() {
       else if (strcmp(req.path, "/pause")  == 0) handlePause(client);
       else if (strcmp(req.path, "/resume") == 0) handleResume(client);
       else if (strcmp(req.path, "/stop")   == 0) handleStop(client);
+      else if (strcmp(req.path, "/pen")    == 0) handlePostPen(client, body);
       else client.print(F("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nNot Found"));
     }
   } else {

@@ -11,5 +11,6 @@
 
 void state_pen_settings();
 void loadPenCfg();  // call from setup() to restore saved values on boot
+void savePenCfg();  // persist current globals to /.config.cfg
 
 #endif // STATE_PEN_SETTINGS_H

@@ -30,7 +30,7 @@ static int  ps_selected      = 1;
 
 // ---- SD persistence ----
 
-static void savePenCfg() {
+void savePenCfg() {
   sd.remove(PEN_CFG_PATH);
   FsFile f;
   if (!f.open(PEN_CFG_PATH, O_WRONLY | O_CREAT)) return;
