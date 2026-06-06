@@ -53,7 +53,8 @@ void setup() {
 
   pinMode(PIN_SDCARD_CS, OUTPUT); digitalWrite(PIN_SDCARD_CS, HIGH);
   delay(100);
-  sd.begin(SdSpiConfig(PIN_SDCARD_CS, SHARED_SPI, SD_SCK_HZ(400000)));
+  if (!sd.begin(SdSpiConfig(PIN_SDCARD_CS, SHARED_SPI, SD_SCK_HZ(400000))))
+    Serial.println("[DBG] SD init FAILED");
 
   u8g2.begin();
   pinMode(PIN_FAN, OUTPUT);

@@ -1,11 +1,12 @@
 // wifi_manager.cpp
 // WiFi station mode + background HTTP server for the MKR WiFi 1010.
-// Credentials read from /.config.cfg on SD (ssid=xxx / password=xxx).
+// Credentials read from /wifi.cfg on SD (ssid=xxx / password=xxx).
 // HTTP server runs on port 80. All HTML is served inline — no SPIFFS needed.
 
 #include "wifi_manager.h"
 #include <WiFiNINA.h>
-#include <WiFiMDNSResponder.h>
+
+
 #include <SdFat.h>
 #include "serial_manager.h"
 #include "job_control.h"
@@ -20,7 +21,10 @@ static char _password[64] = "";
 
 static void loadWifiCfg() {
   FsFile f;
-  if (!f.open("/.config.cfg", O_READ)) return;
+  if (!f.open("/wifi.cfg", O_READ)) {
+    Serial.println("WIFI: /wifi.cfg not found on SD");
+    return;
+  }
   char line[80];
   uint8_t len = 0;
   while (f.available()) {
@@ -31,6 +35,7 @@ static void loadWifiCfg() {
     if (eol) {
       line[len] = '\0';
       char *eq = strchr(line, '=');
+      if (!eq) eq = strchr(line, ':');
       if (eq) {
         *eq = '\0';
         if      (strcmp(line, "ssid")     == 0) strncpy(_ssid,     eq+1, sizeof(_ssid)-1);
@@ -46,16 +51,16 @@ static void loadWifiCfg() {
 
 // ---- Server ----
 
-static WiFiServer        _server(80);
-static WiFiMDNSResponder _mdns;
-static bool              _connected = false;
+static WiFiServer _server(80);
+static bool       _connected = false;
 
 bool wifiBegin() {
   loadWifiCfg();
   if (_ssid[0] == '\0') {
-    Serial.println("WIFI: no ssid in /.config.cfg");
+    Serial.println("WIFI: no ssid in /wifi.cfg");
     return false;
   }
+  WiFi.setHostname("plotter");
   Serial.print("WIFI: connecting to "); Serial.println(_ssid);
   int status = WiFi.begin(_ssid, _password);
   unsigned long t = millis();
@@ -69,10 +74,8 @@ bool wifiBegin() {
     return false;
   }
   _server.begin();
-  _mdns.begin("plotter");
   _connected = true;
   Serial.print("WIFI: connected, IP="); Serial.println(WiFi.localIP());
-  Serial.println("WIFI: mDNS started — http://plotter.local");
   return true;
 }
 
@@ -513,9 +516,23 @@ gotHeader:
 // ---- wifiTick ----
 
 void wifiTick() {
+  if (_connected && WiFi.status() != WL_CONNECTED) {
+    Serial.println("WIFI: connection lost, reconnecting...");
+    _connected = false;
+    WiFi.setHostname("plotter");
+    WiFi.begin(_ssid, _password);
+    unsigned long t = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t < 15000) delay(500);
+    if (WiFi.status() == WL_CONNECTED) {
+      _server.begin();
+      _connected = true;
+      Serial.print("WIFI: reconnected, IP="); Serial.println(WiFi.localIP());
+    } else {
+      Serial.println("WIFI: reconnect failed");
+    }
+    return;
+  }
   if (!wifiConnected()) return;
-
-  _mdns.poll();
 
   WiFiClient client = _server.available();
   if (!client) return;

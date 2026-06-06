@@ -142,11 +142,18 @@ void test_overwrite_M3_becomes_pendown(void) {
     TEST_ASSERT_EQUAL_STRING("M5 S100", line);  // M3 → pen down
 }
 
-void test_overwrite_M5_becomes_penup(void) {
+void test_overwrite_M5_stays_pendown(void) {
     g_overwriteS = true;
     char line[32] = "M5 S500";
     applyPenOverwrite(line, sizeof(line));
-    TEST_ASSERT_EQUAL_STRING("M4 S800", line);  // M5 → pen up
+    TEST_ASSERT_EQUAL_STRING("M5 S100", line);  // M5 → pen down (S overwritten)
+}
+
+void test_overwrite_M4_stays_penup(void) {
+    g_overwriteS = true;
+    char line[32] = "M4 S500";
+    applyPenOverwrite(line, sizeof(line));
+    TEST_ASSERT_EQUAL_STRING("M4 S800", line);  // M4 → pen up (S overwritten)
 }
 
 void test_overwrite_skips_motion_line(void) {
@@ -203,7 +210,8 @@ int main(int argc, char** argv) {
     // applyPenOverwrite
     RUN_TEST(test_overwrite_disabled_leaves_M5);
     RUN_TEST(test_overwrite_M3_becomes_pendown);
-    RUN_TEST(test_overwrite_M5_becomes_penup);
+    RUN_TEST(test_overwrite_M5_stays_pendown);
+    RUN_TEST(test_overwrite_M4_stays_penup);
     RUN_TEST(test_overwrite_skips_motion_line);
 
     // progressPathFor

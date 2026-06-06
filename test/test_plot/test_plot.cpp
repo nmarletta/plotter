@@ -24,6 +24,7 @@ SerialManager serialMgr(Serial1);
 int  g_penDownS   = 100;
 int  g_penUpS     = 800;
 bool g_overwriteS = false;
+int  g_penDelayMs = 0;
 
 #define SD_CS_PIN    A5
 #define TRACE_FILE   "/trace_test.nc"
