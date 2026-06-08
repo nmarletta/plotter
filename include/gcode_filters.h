@@ -87,7 +87,7 @@ inline bool parsePauseLine(const char* line, char* out, uint8_t outLen) {
     if (strncasecmp(line, "PAUSE", 5) != 0) return false;
     line += 5;
     while (*line == ' ' || *line == '\t') line++;
-    strncpy(out, *line ? line : "Pen change", outLen - 1);
+    strncpy(out, *line ? line : "Gcode pause", outLen - 1);
     out[outLen - 1] = '\0';
     return true;
 }

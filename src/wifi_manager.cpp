@@ -5,6 +5,7 @@
 
 #include "wifi_manager.h"
 #include <WiFiNINA.h>
+#include "gcode_filters.h"
 
 
 #include <SdFat.h>
@@ -196,6 +197,39 @@ static void handleRoot(WiFiClient &c) {
             "</script></body></html>"));
 }
 
+// ---- POST /delete — remove a file by name ----
+
+static void handleDeleteFile(WiFiClient &c, const String &body) {
+  String name = body;
+  name.trim();
+  // Strip any leading path separators
+  int slash = name.lastIndexOf('/');
+  if (slash >= 0) name = name.substring(slash + 1);
+  slash = name.lastIndexOf('\\');
+  if (slash >= 0) name = name.substring(slash + 1);
+
+  if (name.length() == 0) {
+    c.print(F("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\nMissing filename"));
+    return;
+  }
+
+  String path = "/" + name;
+  if (!sd.exists(path.c_str())) {
+    c.print(F("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nFile not found"));
+    return;
+  }
+
+  if (!sd.remove(path.c_str())) {
+    send500(c);
+    return;
+  }
+  char progressPath[80];
+  progressPathFor(path.c_str(), progressPath, sizeof(progressPath));
+  if (sd.exists(progressPath)) sd.remove(progressPath);
+  send200(c, "text/plain");
+  c.print("Deleted");
+}
+
 // ---- GET /files — JSON list ----
 
 static void handleFiles(WiFiClient &c) {
@@ -326,7 +360,10 @@ static void handleUpload(WiFiClient &c, WiFiClient &raw, int contentLength, cons
 
   // 3. Open file on SD
   String path = "/" + String(filename);
-  sd.remove(path.c_str());
+  if (sd.exists(path.c_str())) {
+    send409(c, "File already exists");
+    return;
+  }
   FsFile outFile;
   if (!outFile.open(path.c_str(), O_WRONLY | O_CREAT)) {
     send500(c);
@@ -647,6 +684,7 @@ void wifiTick() {
       else if (strcmp(req.path, "/resume") == 0) handleResume(client);
       else if (strcmp(req.path, "/stop")   == 0) handleStop(client);
       else if (strcmp(req.path, "/pen")    == 0) handlePostPen(client, body);
+      else if (strcmp(req.path, "/delete") == 0) handleDeleteFile(client, body);
       else client.print(F("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\nNot Found"));
     }
   } else {

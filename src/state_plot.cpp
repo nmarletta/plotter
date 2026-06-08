@@ -161,6 +161,7 @@ void         plotCancel()      { _gcode_streamer.cancel(); }
 bool plotStartRemote(const char* filepath) {
     GCodeStatus s = _gcode_streamer.status();
     if (s == GCodeStatus::Running || s == GCodeStatus::Paused) return false;
+    if (currentState != MAIN && currentState != FILES && currentState != PLOT) return false;
     selectedFile   = filepath;
     _plot_entered  = false;
     currentState   = PLOT;
